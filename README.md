@@ -9,6 +9,7 @@ reads) and `README.md` (for humans).
 | Skill | What it does |
 |-------|--------------|
 | [`generate-image`](./generate-image) | Generate & edit images, illustrations, icons, diagrams, avatars, and product shots from natural language via Google's Nano Banana (Gemini) image models. Brand-styled archetype presets + guided key setup. |
+| [`100-sources`](./100-sources) | Topic-agnostic research engine — scans 100–1000 real sources, distils a tiered principle set, and renders an answer-first narrative as markdown + HTML report + ~20-slide deck. Self-improving via a learnings loop. |
 | [`climatepulse`](./climatepulse) | Generate a personalised daily climate / energy / sustainability intelligence digest into a local Markdown wiki — deterministic RSS fetch, dedup, score/tag, synthesised briefing, self-tuning from feedback. |
 
 ## Installing a skill

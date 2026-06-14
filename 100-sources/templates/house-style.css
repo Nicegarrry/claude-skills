@@ -1,0 +1,80 @@
+/* 100-sources house style - Qubit / SapphireOS flavour.
+   Two render modes share this sheet: a long-form DOC (report.html) and a ~20-slide
+   DECK (deck.html). Render agents embed this verbatim in a <style> tag.
+   Self-contained: system font stack only, no web fonts, no external assets. */
+
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --ink:#0f2a3b; --ink-soft:#46606f; --muted:#7d93a1;
+  --sapphire:#306FA8; --sapphire-deep:#1e4d77; --sapphire-soft:#eaf2f9;
+  --paper:#f5f8fb; --card:#fff; --line:#e3eaf0; --warn:#b5562e;
+}
+html{font-size:16px;-webkit-text-size-adjust:100%}
+body{font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:var(--paper);line-height:1.6}
+
+/* ---- shared atoms ---- */
+.stat{font-variant-numeric:tabular-nums;font-weight:800;color:var(--sapphire)}
+.tier{display:inline-block;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:99px;vertical-align:middle;margin-left:4px}
+.tier.canon{background:#e6f3ec;color:#226844}
+.tier.secondary{background:#eef0f3;color:#54606b}
+.tier.forum{background:#fbf1e6;color:#8a5a1c}
+.callout{background:var(--sapphire-soft);border-left:3px solid var(--sapphire);border-radius:0 8px 8px 0;padding:14px 18px;margin:16px 0;font-size:.92rem}
+.callout.warn{background:#fbf2ec;border-left-color:var(--warn)}
+
+/* ================= DOC (report.html) ================= */
+body.doc-mode{padding:48px 20px}
+.wrap{max-width:880px;margin:0 auto;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(16,42,59,.05)}
+header.doc{background:linear-gradient(135deg,var(--sapphire-deep),var(--sapphire));color:#fff;padding:40px 44px}
+.kicker{text-transform:uppercase;letter-spacing:.14em;font-size:.72rem;font-weight:700;opacity:.85}
+header.doc h1{font-size:1.9rem;font-weight:800;letter-spacing:-.02em;margin:.4rem 0 .5rem;line-height:1.15}
+header.doc .sub{font-size:1.02rem;opacity:.94;max-width:62ch}
+header.doc .meta{margin-top:18px;font-size:.8rem;opacity:.88;border-top:1px solid rgba(255,255,255,.25);padding-top:12px}
+.pill{display:inline-block;background:rgba(255,255,255,.16);color:#fff;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:3px 10px;border-radius:99px;margin-right:6px}
+main{padding:36px 44px}
+main h2{font-size:1.18rem;font-weight:800;color:var(--sapphire-deep);margin:34px 0 12px;padding-bottom:7px;border-bottom:2px solid var(--sapphire-soft);letter-spacing:-.01em}
+main h2:first-child{margin-top:0}
+main h3{font-size:1rem;font-weight:700;color:var(--ink);margin:20px 0 6px}
+main p{margin:0 0 12px}
+main ul,main ol{margin:0 0 14px;padding-left:22px}
+main li{margin:5px 0}
+.lead{font-size:1.06rem;color:var(--ink-soft);margin-bottom:16px}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:.85rem}
+th,td{text-align:left;padding:9px 11px;border-bottom:1px solid var(--line);vertical-align:top}
+thead th{background:var(--sapphire-soft);color:var(--sapphire-deep);font-weight:700;text-transform:uppercase;letter-spacing:.05em;font-size:.7rem;border-bottom:2px solid #cfe0ee}
+tbody tr:nth-child(even){background:#fafcfe}
+footer.doc{padding:20px 44px 30px;color:var(--muted);font-size:.76rem;border-top:1px solid var(--line)}
+a{color:var(--sapphire)}
+@media print{body.doc-mode{background:#fff;padding:0}.wrap{border:none;box-shadow:none;border-radius:0}}
+
+/* ================= DECK (deck.html) =================
+   ~20 slides, each a 1280x720 .slide. Scroll-snap + arrow-key nav.
+   Markup pattern:
+     <body class="deck-mode"><div class="deck">
+       <section class="slide cover"> ... </section>
+       <section class="slide"> <span class="eyebrow">PILLAR 2</span>
+         <h2 class="action-title">Full-sentence conclusion goes here.</h2>
+         <ul> <li>point <span class="stat">3x</span> <span class="tier canon">canon</span></li> </ul>
+         <div class="src">Source line</div> </section>
+     </div><div class="counter"></div><script> ...arrow nav... </script></body>
+*/
+body.deck-mode{background:#0c2030}
+.deck{scroll-snap-type:y mandatory;height:100vh;overflow-y:scroll}
+.slide{scroll-snap-align:start;position:relative;width:1280px;max-width:96vw;min-height:720px;height:96vh;margin:2vh auto;background:var(--card);border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,.35);padding:72px 88px;display:flex;flex-direction:column;justify-content:center;overflow:hidden}
+.slide .eyebrow{position:absolute;top:48px;left:88px;text-transform:uppercase;letter-spacing:.16em;font-size:.78rem;font-weight:800;color:var(--sapphire)}
+.slide .num{position:absolute;top:48px;right:88px;font-size:.78rem;font-weight:700;color:var(--muted)}
+.slide h2.action-title{font-size:2.1rem;font-weight:800;letter-spacing:-.02em;line-height:1.18;color:var(--ink);margin-bottom:26px;max-width:30ch}
+.slide ul{list-style:none;padding:0;margin:0}
+.slide li{font-size:1.18rem;color:var(--ink-soft);padding:11px 0 11px 28px;position:relative;border-top:1px solid var(--line)}
+.slide li:first-child{border-top:none}
+.slide li:before{content:"";position:absolute;left:0;top:21px;width:11px;height:11px;border-radius:3px;background:var(--sapphire)}
+.slide .src{position:absolute;bottom:44px;left:88px;right:88px;font-size:.74rem;color:var(--muted);border-top:1px solid var(--line);padding-top:10px}
+/* cover + divider variants */
+.slide.cover{background:linear-gradient(135deg,var(--sapphire-deep),var(--sapphire));color:#fff;justify-content:flex-end}
+.slide.cover .kicker{color:#fff;opacity:.85;font-size:.9rem}
+.slide.cover h1{font-size:3rem;font-weight:800;letter-spacing:-.03em;line-height:1.08;margin:.4rem 0 1.2rem;max-width:24ch}
+.slide.cover .sub{font-size:1.35rem;opacity:.95;max-width:40ch}
+.slide.divider{background:var(--sapphire-soft);justify-content:center}
+.slide.divider h2{font-size:2.6rem;font-weight:800;color:var(--sapphire-deep);letter-spacing:-.02em;max-width:24ch}
+.slide.divider .lead{font-size:1.3rem;color:var(--ink-soft);margin-top:14px;max-width:40ch}
+.counter{position:fixed;bottom:18px;right:22px;background:rgba(255,255,255,.9);color:var(--sapphire-deep);font-size:.78rem;font-weight:700;padding:4px 12px;border-radius:99px;box-shadow:0 2px 8px rgba(0,0,0,.2);z-index:10}
+@media print{body.deck-mode{background:#fff}.deck{height:auto;overflow:visible;scroll-snap-type:none}.slide{height:720px;page-break-after:always;box-shadow:none;margin:0 auto}.counter{display:none}}
