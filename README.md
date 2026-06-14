@@ -29,9 +29,9 @@ Claude Code auto-discovers skills in `~/.claude/skills/` and loads them when the
 
 ## Notes
 
-- `climatepulse` also has its own standalone repo at
-  [`Nicegarrry/climatepulse-skill`](https://github.com/Nicegarrry/climatepulse-skill);
-  the copy here is the same skill bundled into this collection.
+- `climatepulse` previously lived in its own repo
+  ([`Nicegarrry/climatepulse-skill`](https://github.com/Nicegarrry/climatepulse-skill),
+  now archived) — this collection is its home.
 - No secrets live in this repo — skills read API keys from local config files /
   environment variables at runtime, never from committed files.
 
