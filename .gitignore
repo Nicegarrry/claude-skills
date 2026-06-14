@@ -1,0 +1,13 @@
+# The standalone climatepulse-skill repo lives here too (its own git remote).
+# The collection ships a clean copy under climatepulse/ — don't embed the repo.
+/climatepulse-skill/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Secrets — never commit credentials
+*.env
+credentials*
+.DS_Store
