@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Proofing Room — Demo Page</title>
+  <style>
+    :root { --ink: #1d2433; --muted: #5b6577; --line: #e6e8ee; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 16px/1.6 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: #fafbfc; }
+    main { max-width: 720px; margin: 0 auto; padding: 64px 28px 120px; }
+    header p { color: var(--muted); margin-top: 4px; }
+    h1 { font-size: 40px; line-height: 1.15; letter-spacing: -0.02em; margin: 0; }
+    h2 { font-size: 24px; margin: 48px 0 8px; }
+    section { border-top: 1px solid var(--line); padding-top: 8px; }
+    blockquote { margin: 20px 0; padding: 14px 18px; background: #fff; border-left: 3px solid #306FA8; border-radius: 8px; color: var(--muted); }
+    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+    .card h3 { margin: 0 0 6px; font-size: 16px; }
+    .card p { margin: 0; color: var(--muted); font-size: 14px; }
+    a.cta { display: inline-block; margin-top: 18px; background: #3D1F3D; color: #fff; text-decoration: none; padding: 11px 18px; border-radius: 9px; font-weight: 600; }
+    footer { margin-top: 56px; color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>The Proofing Room</h1>
+      <p>A demo page for the drop-in review wrapper. Open it with <code>?proof</code> to start.</p>
+    </header>
+
+    <section>
+      <h2>What this is</h2>
+      <p>This is ordinary page copy. With proofing mode on, you can pin a comment to
+      any element, or edit the text in place, then export everything as JSON for an
+      agent to action. Without the flag, this page looks completely normal.</p>
+      <blockquote>Try editing this sentence in place — switch on “✎ Edit text”, click here, and rewrite it.</blockquote>
+    </section>
+
+    <section>
+      <h2>Things you can review</h2>
+      <div class="cards">
+        <div class="card"><h3>Headlines</h3><p>Comment on tone, clarity, or length.</p></div>
+        <div class="card"><h3>Body copy</h3><p>Suggest rewrites inline without leaving the page.</p></div>
+        <div class="card"><h3>Calls to action</h3><p>Flag anything that feels off-brand.</p></div>
+        <div class="card"><h3>Layout</h3><p>Note spacing, hierarchy, or ordering issues.</p></div>
+      </div>
+      <a class="cta" href="#">Primary call to action</a>
+    </section>
+
+    <section>
+      <h2>Far down the page</h2>
+      <p>Scroll content exists below the panel so you can test that comment pins
+      reposition on scroll, and that collapsing or dragging the panel lets you reach
+      elements it was covering.</p>
+      <p>Add a comment here, collapse the panel to its toolbar, then drag it aside.</p>
+    </section>
+
+    <footer>Proofing Room demo · part of the claude-skills collection</footer>
+  </main>
+
+  <!-- One tag. Dormant until you add ?proof to the URL. -->
+  <script src="proofing-room.js"></script>
+</body>
+</html>
