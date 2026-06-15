@@ -15,7 +15,9 @@
  * In proofing mode, reviewers pin comments anywhere, edit copy in place, then
  * "Extract JSON" downloads an anchored review file an agent can process. No
  * backend. Comments/edits persist in localStorage per page path so a reload
- * doesn't lose them. Format-agnostic: landing pages, standalone html, decks.
+ * doesn't lose them. Works on scrolling pages AND slide decks where only one
+ * slide renders at a time (display:none / visibility / transform / opacity):
+ * pins track their slide and hide while their slide is off-screen.
  *
  * Downloaded JSON:
  * { tool, version, url, title, path, extractedAt, reviewers[],
@@ -23,6 +25,10 @@
  *   edits[ {id,author,original,text,createdAt,section,selector,tag} ],
  *   document[ {tag,text,selector,comments[{author,text}],edited?,original?} ] }
  *
+ * v4 (2026-06-15): slide-deck support — a MutationObserver repositions pins on
+ * slide changes (not just scroll/resize), pins for off-screen/hidden slides are
+ * hidden instead of piling in the corner, and Extract maps every slide's prose
+ * (not only the visible one). jumpTo navigates known deck frameworks too.
  * v3 (2026-06-15): self-gating on ?proof (no React shim needed), collapse to a
  * floating toolbar that keeps the Comment/Edit/Extract buttons while hiding the
  * list, and drag the header to move the panel anywhere (position persists).
@@ -70,6 +76,26 @@
   /* ---- element helpers ---------------------------------------------------- */
   function isUi(el) {
     return !!(el.closest && el.closest("#pr-root, #pr-pins, #pr-pop, #pr-border, #pr-badge"));
+  }
+  /* Is el actually on-screen right now? Decks hide inactive slides via
+     display:none / visibility / opacity:0 / off-screen transforms; an anchor on
+     such a slide must NOT get a pin (it would land in the corner or over the
+     wrong slide). getClientRects() is empty for display:none; checkVisibility()
+     (where supported) also catches visibility/opacity/content-visibility. */
+  function isVisible(el) {
+    if (!el || !el.isConnected) return false;
+    if (!el.getClientRects().length) return false;
+    if (typeof el.checkVisibility === "function") {
+      return el.checkVisibility({
+        contentVisibilityAuto: true, opacityProperty: true, visibilityProperty: true,
+        checkOpacity: true, checkVisibilityCSS: true,
+      });
+    }
+    var cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden" || cs.visibility === "collapse" || cs.opacity === "0")
+      return false;
+    var r = el.getBoundingClientRect();
+    return r.width > 0 || r.height > 0;
   }
   function selectorFor(el) {
     if (!el || el === document.body) return "body";
@@ -503,14 +529,29 @@
     }
     return null;
   }
+  function tryRevealSlide(el) {
+    // reveal.js: drive the deck to the slide containing el (clean public API,
+    // keeps the deck's own index/counter in sync). Other custom decks vary too
+    // much to navigate generically — scrollIntoView still helps lazy-mount ones.
+    try {
+      if (window.Reveal && typeof Reveal.getIndices === "function" && typeof Reveal.slide === "function") {
+        var sec = el.closest(".slides section, section");
+        if (sec) { var idx = Reveal.getIndices(sec); if (idx) { Reveal.slide(idx.h, idx.v, idx.f); return true; } }
+      }
+    } catch (e) {}
+    return false;
+  }
   function jumpTo(c) {
     var el = locate(c);
     if (!el) return;
+    if (!isVisible(el)) tryRevealSlide(el); // off-screen deck slide: drive the framework if we recognise it
     el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.classList.add("pr-flash");
-    setTimeout(function () {
-      el.classList.remove("pr-flash");
-    }, 1500);
+    var flash = function () {
+      el.classList.add("pr-flash");
+      setTimeout(function () { el.classList.remove("pr-flash"); }, 1500);
+    };
+    if (isVisible(el)) flash();
+    else setTimeout(flash, 260); // allow a slide transition to land, then flash
   }
 
   /* ---- render pins + list ------------------------------------------------- */
@@ -520,7 +561,7 @@
     pins.innerHTML = "";
     state.comments.forEach(function (c, i) {
       var el = locate(c);
-      if (!el) return;
+      if (!el || !isVisible(el)) return; // anchor on a hidden/off-screen slide → no pin
       var r = el.getBoundingClientRect();
       var pin = document.createElement("div");
       pin.className = "pr-pin";
@@ -583,12 +624,33 @@
     rafPending = true;
     requestAnimationFrame(function () {
       rafPending = false;
+      if (mo) mo.disconnect(); // render() mutates our UI — don't observe our own writes
       clampPos();
       render();
+      observe();
     });
   }
-  window.addEventListener("scroll", scheduleReposition, true);
+  window.addEventListener("scroll", scheduleReposition, true); // capture: catches inner-scroll containers too
   window.addEventListener("resize", scheduleReposition);
+
+  /* Slide decks change the active slide with no scroll/resize event — they
+     toggle class/style/hidden or swap nodes. Watch the document for those and
+     reposition, so pins follow the deck. Coalesced to one pass per frame via
+     scheduleReposition; the observer is disconnected during render() so our own
+     pin/list writes don't retrigger it. */
+  var mo = typeof MutationObserver === "function" ? new MutationObserver(function (muts) {
+    for (var i = 0; i < muts.length; i++) {
+      if (!isUi(muts[i].target)) { scheduleReposition(); return; }
+    }
+  }) : null;
+  function observe() {
+    if (!mo) return;
+    mo.observe(document.body, {
+      attributes: true, attributeFilter: ["class", "style", "hidden", "aria-hidden"],
+      subtree: true, childList: true,
+    });
+  }
+  observe();
 
   /* ---- extract / download ------------------------------------------------- */
   function buildDocument() {
@@ -602,6 +664,10 @@
       var take = STD.test(tag) || (LEAF.test(tag) && n.children.length === 0 && !n.closest(PROSE));
       if (!take) return;
       var text = snippet(n, 400);
+      if (!text) { // hidden slide: innerText is "" under display:none → use raw text so every slide is mapped
+        text = (n.textContent || "").replace(/\s+/g, " ").trim();
+        if (text.length > 400) text = text.slice(0, 399) + "…";
+      }
       if (!text) return;
       var s = selectorFor(n);
       var cs = state.comments
@@ -630,7 +696,7 @@
     noteR(state.reviewer);
     var data = {
       tool: "proofing-room",
-      version: "3",
+      version: "4",
       url: location.href,
       path: location.pathname,
       title: document.title,
