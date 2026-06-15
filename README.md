@@ -12,6 +12,7 @@ reads) and `README.md` (for humans).
 | [`100-sources`](./100-sources) | Topic-agnostic research engine — scans 100–1000 real sources, distils a tiered principle set, and renders an answer-first narrative as markdown + HTML report + ~20-slide deck. Self-improving via a learnings loop. |
 | [`climatepulse`](./climatepulse) | Generate a personalised daily climate / energy / sustainability intelligence digest into a local Markdown wiki — deterministic RSS fetch, dedup, score/tag, synthesised briefing, self-tuning from feedback. |
 | [`proofing-room`](./proofing-room) | Drop a self-contained wrapper onto any HTML page so reviewers can pin comments and edit copy in place, then export an anchored JSON an agent can action. Dormant until you add `?proof` to the URL; no backend or build step. |
+| [`session-handoff`](./session-handoff) | `/wrap` before you `/clear` and the live agent writes a per-project handoff (what was done · next · gotchas · key files); a `SessionStart` hook auto-injects it into the next session, with a headless `SessionEnd` fallback if you forget. Run `./session-handoff/install.sh` to wire up the hooks. |
 
 ## Installing a skill
 
