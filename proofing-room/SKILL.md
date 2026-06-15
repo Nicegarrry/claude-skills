@@ -18,6 +18,14 @@ no framework, no build step — it's vanilla JS that stores state in
 → agent applies the feedback. This skill handles both ends: **wiring the wrapper
 in**, and **acting on the JSON that comes back**.
 
+Works on both **scrolling pages** (landing pages, reports, long HTML) and
+**slide decks** where only one slide renders at a time (display/visibility/
+transform/opacity toggling). On a deck, each pin tracks its own slide and is
+hidden while that slide is off-screen, and `Extract JSON` maps every slide's
+prose — not just the one on screen. (Jumping from the tray to a comment on
+another slide auto-navigates reveal.js decks; for other custom deck frameworks,
+navigate to the slide yourself, then the pin appears.)
+
 ## When to use
 
 - "Add a way for me / a client to comment on this page or site."
@@ -104,7 +112,7 @@ Pick the case that matches the target. In all cases, copy `proofing-room.js`
 ```jsonc
 {
   "tool": "proofing-room",
-  "version": "3",
+  "version": "4",
   "url": "https://site.com/about?proof",
   "path": "/about",
   "title": "About",
