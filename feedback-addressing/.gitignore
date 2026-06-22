@@ -1,0 +1,8 @@
+# Private, machine-local overlay — never publish.
+# Holds reviewer voices, vetted source lists, reference-folder paths, and
+# any env values specific to you. The skill runs generically without it.
+local/
+
+# Python
+__pycache__/
+*.pyc
