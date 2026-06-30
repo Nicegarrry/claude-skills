@@ -1,0 +1,4 @@
+interface:
+  display_name: "Daily Interest Brief"
+  short_description: "Topic updates for morning briefs"
+  default_prompt: "Use $daily-interest-brief to add concise sourced updates about the topics I follow to my morning brief."
