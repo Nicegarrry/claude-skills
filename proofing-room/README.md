@@ -1,14 +1,14 @@
 # Proofing Room
 
 A self-contained, drop-in wrapper that turns **any** HTML page into a review
-surface. Reviewers pin comments to elements and edit copy in place, then export
-an **anchored JSON** an agent (or you) can act on. No backend, no build step —
-one vanilla-JS file, state stored in `localStorage`.
+surface — on desktop **and** mobile. Reviewers pin comments, edit copy in
+place, answer inline questions the page declares, react, approve sections,
+and set reminders — then export (or optionally send) an **anchored JSON** an
+agent (or you) can act on. No backend, no build step — one vanilla-JS file,
+state stored in `localStorage`.
 
-It's the review half of a tight loop: an agent generates HTML → a human marks it
-up in proofing mode → exports JSON → the agent applies the feedback.
-
-![Proofing mode: thick border, badge, and a docked panel for comments + edits]
+It's the review half of a tight loop: an agent generates HTML → a human marks
+it up in proofing mode → exports JSON → the agent applies the feedback.
 
 ## Quick start
 
@@ -28,6 +28,8 @@ flag see the tool.
 
 > Opening a local file directly (`file://`)? Use `mypage.html#proof` instead —
 > some browsers drop the query string on file URLs. `?proof=1` also works.
+> On a phone the touch UI kicks in automatically; to preview it on a desktop
+> browser use `?proof=mobile`.
 
 Try it now with the included demo:
 
@@ -35,50 +37,88 @@ Try it now with the included demo:
 cd proofing-room
 python3 -m http.server 8799
 # then open http://127.0.0.1:8799/example.html?proof
+# or       http://127.0.0.1:8799/example.html?proof=mobile
 ```
 
 ## What you can do in proofing mode
 
-| Action | How |
-|--------|-----|
-| **Comment** on anything | Click **+ Comment**, then click an element, type, Save. |
-| **Edit copy in place** | Click **✎ Edit text**, click prose, rewrite it (original is kept). |
-| **Name yourself** | Fill the **Reviewer** field — stamps your comments/edits. |
-| **Export** | Click **Extract JSON** → downloads `proofing-<page>-<date>.json`. |
-| **Get it out of the way** | Click the header to **collapse** to a floating toolbar (keeps the buttons, hides the list); **drag** the header to move it anywhere. |
-| **Clear** | **Clear all** wipes comments + reverts edits for this page. |
+| Action | Desktop | Mobile |
+|--------|---------|--------|
+| **Comment** on anything | Click **+ Comment**, click an element, type, Save. | Long-press an element → **Comment**. |
+| **Edit copy in place** | Click **✎ Edit**, click prose, rewrite it (original is kept). | Long-press → **Edit text**. |
+| **React** | 👍/👎 from the comment popover. | Long-press → Looks right / Off the mark. |
+| **Answer a declared question** | Tap the rendered control (buttons / slider / checkbox) wherever the page put it — same on both. | |
+| **Approve a section** | Tap the circle in a `data-proof-section` heading — same on both. | |
+| **Set a reminder** | From the comment popover. | Long-press → **Remind me**. |
+| **Name yourself** | Fill the **Reviewer** field. | Set it from the notes drawer (tap the note count). |
+| **Export** | **Extract JSON** → downloads `proofing-<page>-<date>.json`. | Same, from the drawer. |
+| **Send** *(optional — only if a webhook is configured)* | **Send** button in the panel. | Send segment in the floating pill. |
+| **Theme** | Auto / Light / Dark toggle in the panel. | Auto / Light / Dark toggle in the drawer. |
+| **Clear** | **Clear all** wipes notes + reverts edits for this page. | Same, from the drawer. |
 
-A thick plum border and a **"Proofing mode"** badge make it obvious the page is
-under review. Everything is saved per page path in `localStorage`, so a reload
-never loses your notes.
+Everything is saved per page path in `localStorage`, so a reload never loses
+your notes.
+
+## Optional: wire a return channel
+
+There's nothing to configure by default — **Extract JSON** always works and
+needs no setup. If you want reviewers to be able to hit **Send** instead of
+downloading a file:
+
+- **Discord** — set `data-proofing-webhook` on `<body>` to your own channel's
+  webhook URL. Send then POSTs a summary + the full JSON as a file attachment
+  to that channel. The URL is a secret (anyone who has it can post into your
+  channel) — keep the page private, and rotate it if it ever leaks.
+  ```html
+  <body data-proofing-webhook="https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN">
+  ```
+- **here.now (or any static host)** — the page is just static HTML with one
+  script tag, so hosting it anywhere is enough to hand a reviewer a link.
+
+Neither is wired up for you — you provide your own webhook/host if you want
+the round-trip; without one, Extract JSON is the whole loop.
 
 ## The handoff JSON
 
-`Extract JSON` gives you a file with `comments[]`, `edits[]`, and a `document[]`
-map of the page — each item anchored by CSS `selector`, visible `anchorText`,
-nearest `section` heading, and `tag`. Hand it to an agent and ask it to apply the
-edits and action the comments. See [`SKILL.md`](./SKILL.md) for the full schema
-and the agent-side instructions.
+`version: "6"`. Beyond `comments[]` and `edits[]`, it also carries
+`answers[]` / `reactions[]` / `approvals[]` / `done[]` / `reminders[]` for
+anything the page declared with `data-proof-ask` / `data-proof-section`, plus
+a `document[]` map of the whole page. Each item is anchored by CSS `selector`,
+visible `anchorText`, nearest `section` heading, and `tag` (+ `askId` for
+declared asks). See [`SKILL.md`](./SKILL.md) for the full schema and the
+agent-side instructions.
 
-## Use it as a Claude Code skill
+## For design — restyle freely, keep the plumbing
 
-Copy the folder into your skills directory and Claude will wire the wrapper into
-pages for you and act on the exported JSON:
+**Safe to restyle:** all tokens/colours/spacing (the `cssMobile` / `cssDesktop`
+blocks near the top of `proofing-room.js`), the pill / menu / card / composer
+/ panel look, icons, copy, dark-mode values (`:root` + `prefers-color-scheme`).
+It's already monochrome-tokenised, so most reskins are just swapping the
+`--pr-*` custom-property values.
 
-```bash
-cp -R proofing-room ~/.claude/skills/
-```
+**Don't rename / remove** (the JS queries these):
+- ids/classes: `#pr-pill #pr-menu #pr-card #pr-composer #pr-scrim #pr-hairline
+  #pr-pins #pr-tabs #pr-shortcuts`, `.pr-dot .pr-ask .pr-ask-btn .pr-check
+  .pr-scale .pr-approve`, and desktop `#pr-root #pr-pop`.
+- `selectorFor` / `locate` anchoring, the long-press recognizer, the webhook
+  `FormData` shape, the `data-proof-tab` / `data-proof-ask` / `data-ask-type`
+  / `data-proof-section` contract, and the `localStorage` blob shape (older
+  blobs load without migration).
 
-## How it's built
+## iOS notes
 
-- One file, `proofing-room.js`, ~570 lines of dependency-free vanilla JS.
-- Self-gating on `?proof` / `#proof` — no framework integration needed.
-- State (comments, edits, panel position, collapsed state, reviewer name) lives
-  in `localStorage`, keyed by page path.
-- Styling is inline (SapphireOS sapphire + ClimatePulse plum) so it never
-  collides with the host page's CSS, and the UI carries `#pr-*` ids it excludes
-  from its own extraction.
+Handled already: 16px inputs (no focus zoom), `touch-action: manipulation`,
+long-press magnifier suppression, `visualViewport` keyboard tracking, and
+safe-area insets.
+
+## Files in this folder
+
+- `proofing-room.js` — the whole thing. Dependency-free vanilla JS.
+- `example.html` — a demo page: two tabs, one of every declared ask
+  (yes/no, scale, done), and a `data-proof-section` approve.
+- `SKILL.md` — the Claude Code skill definition (what it is, how to wire it
+  in, the declaration reference, acting on the returned JSON).
 
 ## License
 
-[MIT](../LICENSE) © Nick Pinidiya
+MIT

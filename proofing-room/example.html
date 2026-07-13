@@ -1,65 +1,136 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Proofing Room — Demo Page</title>
-  <style>
-    :root { --ink: #1d2433; --muted: #5b6577; --line: #e6e8ee; }
-    * { box-sizing: border-box; }
-    body { margin: 0; font: 16px/1.6 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: #fafbfc; }
-    main { max-width: 720px; margin: 0 auto; padding: 64px 28px 120px; }
-    header p { color: var(--muted); margin-top: 4px; }
-    h1 { font-size: 40px; line-height: 1.15; letter-spacing: -0.02em; margin: 0; }
-    h2 { font-size: 24px; margin: 48px 0 8px; }
-    section { border-top: 1px solid var(--line); padding-top: 8px; }
-    blockquote { margin: 20px 0; padding: 14px 18px; background: #fff; border-left: 3px solid #306FA8; border-radius: 8px; color: var(--muted); }
-    .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
-    .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
-    .card h3 { margin: 0 0 6px; font-size: 16px; }
-    .card p { margin: 0; color: var(--muted); font-size: 14px; }
-    a.cta { display: inline-block; margin-top: 18px; background: #3D1F3D; color: #fff; text-decoration: none; padding: 11px 18px; border-radius: 9px; font-weight: 600; }
-    footer { margin-top: 56px; color: var(--muted); font-size: 13px; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Weekly Team Brief — demo</title>
+
+<!--
+  PROOFING-ROOM DEMO
+  - Add ?proof to the URL to turn on review mode; ?proof=mobile forces the
+    mobile "Hairline" UI on a desktop browser (handy for previewing it).
+  - <body data-proofing-webhook="…"> below is a PLACEHOLDER. Replace it with
+    your own Discord webhook URL to enable "Send"; leave it as-is and the
+    Send button just stays hidden (Extract JSON still works, no webhook
+    needed at all).
+  - DECLARED ASKS: this brief marks a few questions with data-proof-ask +
+    data-ask-type, and proofing-room renders a native control in place:
+      yesno  → option buttons        (data-ask-options="A,B")
+      scale  → visual slider          (data-ask-min / data-ask-max)
+      done   → checkbox
+      + any data-proof-section gets an approve circle in its heading.
+  - Everything else — comment / react / edit-in-place / remind-me — works on
+    any element with no markup at all. Long-press it (mobile) or use the
+    desktop panel / keyboard shortcuts. Restyle freely — see README.md.
+-->
+
+<style>
+  :root{
+    --ink:#1c2430; --muted:#69707c; --line:#e4e7ec; --bg:#f8f9fb; --card:#fff;
+    --accent:#2f6fa8; --warn:#9a5b1e; --go:#1e7a46; --pill:#eef1f5;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{--ink:#e9edf2;--muted:#9aa3b1;--line:#2b323d;--bg:#12161c;--card:#191f28;--pill:#232a34;}
+  }
+  /* opt in to proofing-room's manual dark-mode toggle (data-pr-theme on <html>) */
+  :root[data-pr-theme="light"]{--ink:#1c2430;--muted:#69707c;--line:#e4e7ec;--bg:#f8f9fb;--card:#fff;--pill:#eef1f5;}
+  :root[data-pr-theme="dark"]{--ink:#e9edf2;--muted:#9aa3b1;--line:#2b323d;--bg:#12161c;--card:#191f28;--pill:#232a34;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    padding:env(safe-area-inset-top) 0 120px}
+  .wrap{max-width:680px;margin:0 auto;padding:22px 18px}
+  header{margin-bottom:18px}
+  .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  h1{font-size:26px;line-height:1.2;margin:6px 0 2px}
+  .sub{color:var(--muted);font-size:14px}
+  section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 16px 8px;margin:14px 0}
+  h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;display:flex;align-items:center;gap:8px}
+  h2 .dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+  .queue h2 .dot{background:var(--warn)}
+  .item{padding:14px 0;border-top:1px solid var(--line)}
+  .item:first-of-type{border-top:none}
+  .q{font-weight:650;font-size:16px;margin:0 0 3px}
+  .d{color:var(--muted);font-size:14px;margin:0 0 4px}
+  .age{display:inline-block;font-size:11px;font-weight:700;color:var(--warn);background:var(--pill);border-radius:99px;padding:2px 9px;margin-left:6px;vertical-align:1px}
+  .age.fresh{color:var(--go)}
+  .asklabel{font-size:12px;color:var(--muted);margin-top:8px}
+  ul.tight{margin:2px 0 12px;padding-left:18px}ul.tight li{margin:6px 0}
+  footer{color:var(--muted);font-size:12px;text-align:center;margin-top:20px}
+</style>
 </head>
-<body>
-  <main>
-    <header>
-      <h1>The Proofing Room</h1>
-      <p>A demo page for the drop-in review wrapper. Open it with <code>?proof</code> to start.</p>
-    </header>
 
-    <section>
-      <h2>What this is</h2>
-      <p>This is ordinary page copy. With proofing mode on, you can pin a comment to
-      any element, or edit the text in place, then export everything as JSON for an
-      agent to action. Without the flag, this page looks completely normal.</p>
-      <blockquote>Try editing this sentence in place — switch on “✎ Edit text”, click here, and rewrite it.</blockquote>
-    </section>
+<body data-proofing-webhook="PASTE_YOUR_DISCORD_WEBHOOK_URL_HERE">
+<!--
+  TABS: each top-level container tagged data-proof-tab="Label" becomes a tab
+  panel; proofing-room builds the tab bar and switches between them (tap or
+  swipe). Remove both data-proof-tab attributes below and the page reverts to
+  a plain single-view review — no tab bar at all.
+-->
+<div class="wrap" data-proof-tab="Engineering">
+  <header>
+    <div class="eyebrow">Weekly Team Brief · Engineering</div>
+    <h1>Monday standup</h1>
+    <div class="sub">Long-press anything to respond · tap the answers below · then Send (or Extract JSON).</div>
+  </header>
 
-    <section>
-      <h2>Things you can review</h2>
-      <div class="cards">
-        <div class="card"><h3>Headlines</h3><p>Comment on tone, clarity, or length.</p></div>
-        <div class="card"><h3>Body copy</h3><p>Suggest rewrites inline without leaving the page.</p></div>
-        <div class="card"><h3>Calls to action</h3><p>Flag anything that feels off-brand.</p></div>
-        <div class="card"><h3>Layout</h3><p>Note spacing, hierarchy, or ordering issues.</p></div>
-      </div>
-      <a class="cta" href="#">Primary call to action</a>
-    </section>
+  <section class="queue" data-proof-section="Needs a decision">
+    <h2><span class="dot"></span>Needs a decision (3)</h2>
 
-    <section>
-      <h2>Far down the page</h2>
-      <p>Scroll content exists below the panel so you can test that comment pins
-      reposition on scroll, and that collapsing or dragging the panel lets you reach
-      elements it was covering.</p>
-      <p>Add a comment here, collapse the panel to its toolbar, then drag it aside.</p>
-    </section>
+    <div class="item">
+      <p class="q">How urgent is the API migration? <span class="age">waiting 2d</span></p>
+      <p class="d">Blocks the next two tickets in the queue if it slips another sprint.</p>
+      <div class="asklabel">Urgency</div>
+      <div data-proof-ask="api-migration-urgency" data-ask-type="scale" data-ask-min="1" data-ask-max="5"></div>
+    </div>
 
-    <footer>Proofing Room demo · part of the claude-skills collection</footer>
-  </main>
+    <div class="item">
+      <p class="q">Ship on Fridays? <span class="age fresh">new today</span></p>
+      <p class="d">Proposal: pause Friday deploys and batch into Monday morning instead.</p>
+      <div data-proof-ask="friday-deploys" data-ask-type="yesno" data-ask-options="Yes,No"></div>
+    </div>
 
-  <!-- One tag. Dormant until you add ?proof to the URL. -->
-  <script src="proofing-room.js"></script>
+    <div class="item">
+      <p class="q" data-proof-ask="staging-refresh" data-ask-type="done">Refresh the staging environment before Thursday's demo</p>
+      <p class="d">One-off task — check it off once it's done.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="dot"></span>Shipped this week</h2>
+    <ul class="tight">
+      <li><b>Search reindex job</b> — now runs incrementally instead of a full nightly rebuild.</li>
+      <li><b>proofing-room demo</b> — this page: long-press to annotate, dark mode, inline answers/checkboxes/sliders.</li>
+    </ul>
+  </section>
+
+  <footer>Long-press any line for comment · looks right · off the mark · edit · remind me.</footer>
+</div>
+
+<section class="wrap" data-proof-tab="Marketing">
+  <header>
+    <div class="eyebrow">Weekly Team Brief · Marketing</div>
+    <h1>Campaign notes</h1>
+    <div class="sub">Second sample tab — demonstrates a page holding more than one brief.</div>
+  </header>
+
+  <section>
+    <h2><span class="dot"></span>This week's signal</h2>
+    <div class="item">
+      <p class="q">Newsletter open rate up 4% <span class="age fresh">new today</span></p>
+      <p class="d">Placeholder copy — the new subject-line format seems to be working.</p>
+    </div>
+    <div class="item">
+      <p class="q">Landing page draft ready for review <span class="age">watch</span></p>
+      <p class="d">Placeholder copy — link goes out once copy is approved.</p>
+    </div>
+    <div class="item">
+      <p class="q">Social calendar for next month due Friday</p>
+      <p class="d">Placeholder copy — confirm whether this needs the new brand colours.</p>
+    </div>
+  </section>
+</section>
+
+<script src="proofing-room.js"></script>
 </body>
 </html>
