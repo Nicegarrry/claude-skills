@@ -22,6 +22,8 @@
   - Everything else — comment / react / edit-in-place / remind-me — works on
     any element with no markup at all. Long-press it (mobile) or use the
     desktop panel / keyboard shortcuts. Restyle freely — see README.md.
+  - window.PROOFING_DOCS below (set before the script loads) demonstrates the
+    optional ☰ docs menu — a slide-in drawer linking between related pages.
 -->
 
 <style>
@@ -131,6 +133,16 @@
   </section>
 </section>
 
+<script>
+  // Optional docs menu — set before proofing-room.js loads. Adds a ☰ button
+  // (both platforms) opening a drawer that links between related pages.
+  // Omit this (or leave the array empty) and no button renders at all.
+  window.PROOFING_DOCS = [
+    { title: "Weekly Team Brief", url: "https://example.com/brief", source: "Engineering" },
+    { title: "Roadmap Q3", url: "https://example.com/roadmap", source: "Product" },
+    { title: "Design review notes", url: "https://example.com/design-review", source: "Design" },
+  ];
+</script>
 <script src="proofing-room.js"></script>
 </body>
 </html>

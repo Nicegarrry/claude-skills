@@ -1,11 +1,12 @@
 # Proofing Room
 
-A self-contained, drop-in wrapper that turns **any** HTML page into a review
-surface — on desktop **and** mobile. Reviewers pin comments, edit copy in
-place, answer inline questions the page declares, react, approve sections,
-and set reminders — then export (or optionally send) an **anchored JSON** an
-agent (or you) can act on. No backend, no build step — one vanilla-JS file,
-state stored in `localStorage`.
+A self-contained, drop-in wrapper (v7.0) that turns **any** HTML page into a
+review surface — on desktop **and** mobile, sharing one unified floating
+toolbar across both. Reviewers pin comments, edit copy in place, answer
+inline questions the page declares, react, approve sections, and set
+reminders — then export (or optionally send) an **anchored JSON** an agent
+(or you) can act on. No backend, no build step — one vanilla-JS file, state
+stored in `localStorage`.
 
 It's the review half of a tight loop: an agent generates HTML → a human marks
 it up in proofing mode → exports JSON → the agent applies the feedback.
@@ -42,22 +43,34 @@ python3 -m http.server 8799
 
 ## What you can do in proofing mode
 
+Desktop and mobile share the same floating pill + notes drawer — they only
+differ in how you *start* annotating something.
+
 | Action | Desktop | Mobile |
 |--------|---------|--------|
-| **Comment** on anything | Click **+ Comment**, click an element, type, Save. | Long-press an element → **Comment**. |
-| **Edit copy in place** | Click **✎ Edit**, click prose, rewrite it (original is kept). | Long-press → **Edit text**. |
+| **Comment** on anything | Arm **comment** mode (pill button or `C`), click an element, type, Save. | Long-press an element → **Comment**. |
+| **Edit copy in place** | Arm **edit** mode (pill button or `E`), click prose, rewrite it (original is kept). | Long-press → **Edit text**. |
 | **React** | 👍/👎 from the comment popover. | Long-press → Looks right / Off the mark. |
 | **Answer a declared question** | Tap the rendered control (buttons / slider / checkbox) wherever the page put it — same on both. | |
 | **Approve a section** | Tap the circle in a `data-proof-section` heading — same on both. | |
 | **Set a reminder** | From the comment popover. | Long-press → **Remind me**. |
-| **Name yourself** | Fill the **Reviewer** field. | Set it from the notes drawer (tap the note count). |
-| **Export** | **Extract JSON** → downloads `proofing-<page>-<date>.json`. | Same, from the drawer. |
-| **Send** *(optional — only if a webhook is configured)* | **Send** button in the panel. | Send segment in the floating pill. |
-| **Theme** | Auto / Light / Dark toggle in the panel. | Auto / Light / Dark toggle in the drawer. |
-| **Clear** | **Clear all** wipes notes + reverts edits for this page. | Same, from the drawer. |
+| **Name yourself** | From the notes drawer (tap/click the pill's count). | Same. |
+| **Export** | **Extract JSON** from the notes drawer. | Same. |
+| **Send** *(optional — only if a webhook is configured)* | Send segment in the floating pill. | Same. |
+| **Theme** | Auto / Light / Dark / OLED, from the notes drawer. | Same. |
+| **Clear** | **Clear all** wipes notes + reverts edits for this page, from the drawer. | Same. |
+| **Jump between docs** *(optional)* | ☰ button (top-left) opens a docs drawer — see below. | Same. |
 
 Everything is saved per page path in `localStorage`, so a reload never loses
 your notes.
+
+## Docs menu (optional)
+
+Set `window.PROOFING_DOCS` before the script loads to a list of
+`{ title, url, source }` entries and a **☰** button appears (both platforms)
+opening a slide-in drawer linking between them — handy for a reviewer hopping
+between several related pages in one session. Links preserve the current
+`?proof` mode. No list set → no button, no change in behaviour.
 
 ## Optional: wire a return channel
 
@@ -72,38 +85,40 @@ downloading a file:
   ```html
   <body data-proofing-webhook="https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN">
   ```
-- **here.now (or any static host)** — the page is just static HTML with one
-  script tag, so hosting it anywhere is enough to hand a reviewer a link.
+- **Any static host** — the page is just static HTML with one script tag, so
+  hosting it anywhere is enough to hand a reviewer a link.
 
 Neither is wired up for you — you provide your own webhook/host if you want
 the round-trip; without one, Extract JSON is the whole loop.
 
 ## The handoff JSON
 
-`version: "6"`. Beyond `comments[]` and `edits[]`, it also carries
-`answers[]` / `reactions[]` / `approvals[]` / `done[]` / `reminders[]` for
-anything the page declared with `data-proof-ask` / `data-proof-section`, plus
-a `document[]` map of the whole page. Each item is anchored by CSS `selector`,
-visible `anchorText`, nearest `section` heading, and `tag` (+ `askId` for
-declared asks). See [`SKILL.md`](./SKILL.md) for the full schema and the
-agent-side instructions.
+`version: "6"` — the export schema is unchanged (only the review UI is v7.0).
+Beyond `comments[]` and `edits[]`, it also carries `answers[]` / `reactions[]`
+/ `approvals[]` / `done[]` / `reminders[]` for anything the page declared with
+`data-proof-ask` / `data-proof-section`, plus a `document[]` map of the whole
+page. Each item is anchored by CSS `selector`, visible `anchorText`, nearest
+`section` heading, and `tag` (+ `askId` for declared asks). See
+[`SKILL.md`](./SKILL.md) for the full schema and the agent-side instructions.
 
 ## For design — restyle freely, keep the plumbing
 
 **Safe to restyle:** all tokens/colours/spacing (the `cssMobile` / `cssDesktop`
-blocks near the top of `proofing-room.js`), the pill / menu / card / composer
-/ panel look, icons, copy, dark-mode values (`:root` + `prefers-color-scheme`).
-It's already monochrome-tokenised, so most reskins are just swapping the
-`--pr-*` custom-property values.
+/ `cssDocs` blocks near the top of `proofing-room.js`), the pill / menu / card
+/ composer / drawer look, icons, copy, theme values (`:root` +
+`prefers-color-scheme`, plus the `light` / `dark` / `oled` overrides). It's
+already monochrome-tokenised, so most reskins are just swapping the `--pr-*`
+custom-property values.
 
 **Don't rename / remove** (the JS queries these):
 - ids/classes: `#pr-pill #pr-menu #pr-card #pr-composer #pr-scrim #pr-hairline
-  #pr-pins #pr-tabs #pr-shortcuts`, `.pr-dot .pr-ask .pr-ask-btn .pr-check
-  .pr-scale .pr-approve`, and desktop `#pr-root #pr-pop`.
+  #pr-pins #pr-tabs #pr-shortcuts #pr-burger #pr-docs`, `.pr-dot .pr-ask
+  .pr-ask-btn .pr-check .pr-scale .pr-approve .pr-doc-link`, and desktop
+  `#pr-pop`.
 - `selectorFor` / `locate` anchoring, the long-press recognizer, the webhook
   `FormData` shape, the `data-proof-tab` / `data-proof-ask` / `data-ask-type`
-  / `data-proof-section` contract, and the `localStorage` blob shape (older
-  blobs load without migration).
+  / `data-proof-section` contract, the `window.PROOFING_DOCS` shape, and the
+  `localStorage` blob shape (older blobs load without migration).
 
 ## iOS notes
 
@@ -115,7 +130,8 @@ safe-area insets.
 
 - `proofing-room.js` — the whole thing. Dependency-free vanilla JS.
 - `example.html` — a demo page: two tabs, one of every declared ask
-  (yes/no, scale, done), and a `data-proof-section` approve.
+  (yes/no, scale, done), a `data-proof-section` approve, and a
+  `window.PROOFING_DOCS` list.
 - `SKILL.md` — the Claude Code skill definition (what it is, how to wire it
   in, the declaration reference, acting on the returned JSON).
 

@@ -2,13 +2,29 @@
  * proofing-room.js — drop-in review layer for ANY html page.
  *
  * Add  <script src="proofing-room.js"></script>  once. Dormant until ?proof.
- *     page.html?proof         → review mode (desktop layout)
+ *     page.html?proof         → review mode (desktop: floating toolbar, hover+click to comment)
  *     page.html?proof=mobile  → force the mobile "Hairline" UI (desktop preview)
  *     on a real phone         → mobile UI auto-detects (≤640px / coarse pointer)
  *
  * Reviewers annotate, then Extract JSON (download) or Send (Discord
  * webhook). No backend. Everything persists in localStorage per page path.
  *
+ * v7.0 (2026-07-14) — desktop UI unification, replacing the old v6.4 two-rail
+ *   design. Replaced the right controls rail + left docs rail + top wordmark
+ *   with the SAME floating bottom toolbar mobile uses (pill / docked composer /
+ *   notes drawer), scaled up ~1.3x for a 1280-1440 viewport. Desktop keeps its
+ *   own interaction model on top of that shared chrome: hover-highlight + click
+ *   to comment (armed via two new pill buttons, "+"/pencil, instead of
+ *   long-press) and all existing keyboard shortcuts (C/E/J/K/[/]/⌘⏎/?/Esc).
+ *   Reviewer name / theme (incl. OLED) / Extract JSON / Clear all — previously
+ *   in the right rail — now live in the same notes drawer mobile already had
+ *   (tap/click the pill's count). Docs navigation (previously the left rail)
+ *   is now a ☰ button (fixed top-left, BOTH platforms) opening a slide-in
+ *   drawer — same window.PROOFING_DOCS contract, same isSafeDocUrl() scheme
+ *   guard, absent/empty list → no button at all (this is mobile's first docs
+ *   nav). buildMobile() renamed buildToolbar() since both platforms call it;
+ *   render() no longer branches on IS_MOBILE for pins/pill — only the
+ *   comment/edit ENTRY interaction (arm-then-click vs long-press) still does.
  * v6.2 (2026-07-13) — tabs: pages opt in by tagging top-level containers with
  *   data-proof-tab="Label"; one horizontal bar, tap or swipe to switch, active tab
  *   persisted (proofing-room:tab:<path>). No [data-proof-tab] on the page → no tab
@@ -29,9 +45,9 @@
  *   • iOS: 16px inputs (no focus zoom), touch-action manipulation, long-press
  *     magnifier suppression, visualViewport keyboard tracking.
  *   Extract JSON v6: version "6", adds answers[]/reactions[]/approvals[]/done[]/
- *   reminders[] and KEEPS comments[]/edits[] exactly as v5 (CoS back-compat).
+ *   reminders[] and KEEPS comments[]/edits[] exactly as v5 (backward compatible).
  *   Webhook contract unchanged (payload_json + files[0]). Desktop = v5.
- * v5 (2026-07-13): mobile bottom-sheet + Send-to-CoS webhook (superseded by v6 mobile).
+ * v5 (2026-07-13): mobile bottom-sheet + webhook send (superseded by v6 mobile).
  * v4 (2026-06-15): slide-deck support (MutationObserver reposition, per-slide map).
  * ========================================================================== */
 (function () {
@@ -63,24 +79,48 @@
     return ["Shorter", "Cut this", "Wrong", "More detail"];
   })();
 
-  /* manual dark-mode override: '' = follow system, else 'light' | 'dark' */
+  /* manual dark-mode override: '' = follow system, else 'light' | 'dark' | 'oled' */
   var THEME_KEY = "proofing-room:theme";
   function getTheme() { return localStorage.getItem(THEME_KEY) || ""; }
   function applyTheme(t) {
-    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-pr-theme", t);
+    if (t === "light" || t === "dark" || t === "oled") document.documentElement.setAttribute("data-pr-theme", t);
     else document.documentElement.removeAttribute("data-pr-theme");
   }
   function setTheme(t) { if (t) localStorage.setItem(THEME_KEY, t); else localStorage.removeItem(THEME_KEY); applyTheme(t); }
   applyTheme(getTheme());
   // send-button label — generic "Send" by default; a host page can brand it
-  // (e.g. "Send to CoS") via window.PROOFING_SEND_LABEL or data-proofing-send-label.
+  // (e.g. "Send to Team") via window.PROOFING_SEND_LABEL or data-proofing-send-label.
   var SEND_LABEL =
     (typeof window.PROOFING_SEND_LABEL === "string" && window.PROOFING_SEND_LABEL) ||
     (document.body && document.body.getAttribute("data-proofing-send-label")) ||
     "Send";
 
+  /* ---- doc identity ------------------------------------------------------- */
+  /* A host page can namespace its stored notes by declaring a doc-id, so a
+     page served from a stable/reused URL (e.g. a recurring report published
+     at the same address) gets a fresh sheet each edition instead of
+     resurfacing yesterday's annotations. Declared via window.PROOFING_DOC_ID
+     or <body data-proofing-doc>. Absent → pathname-only key (static-page
+     behaviour, unchanged). */
+  var DOC_ID =
+    (typeof window.PROOFING_DOC_ID === "string" && window.PROOFING_DOC_ID) ||
+    (document.body && document.body.getAttribute("data-proofing-doc")) ||
+    "";
+
   /* ---- state (v5 comments/edits kept; v6 primitives in annos[]) ----------- */
-  var KEY = "proofing-room:" + location.pathname;
+  var KEY = "proofing-room:" + location.pathname + (DOC_ID ? "@" + DOC_ID : "");
+  /* When a doc-id is declared, sweep prior editions' notes for this same path
+     (yesterday's edition at the same URL) so stale annotations don't linger on
+     the device. Only runs when DOC_ID is set → static-page usage is untouched. */
+  if (DOC_ID) {
+    try {
+      var _pfx = "proofing-room:" + location.pathname + "@";
+      for (var _i = localStorage.length - 1; _i >= 0; _i--) {
+        var _k = localStorage.key(_i);
+        if (_k && _k.indexOf(_pfx) === 0 && _k !== KEY) localStorage.removeItem(_k);
+      }
+    } catch (e) {}
+  }
   var state = {
     reviewer: localStorage.getItem("proofing-room:reviewer") || "",
     comments: [], edits: [], annos: [], seq: 0, sent: false,
@@ -103,8 +143,8 @@
   /* ---- element helpers (v4/v5, unchanged) --------------------------------- */
   function isUi(el) {
     return !!(el.closest && el.closest(
-      "#pr-root,#pr-pins,#pr-pop,#pr-border,#pr-badge,#pr-hairline,#pr-pill," +
-      "#pr-menu,#pr-sheet,#pr-card,#pr-composer,#pr-scrim,#pr-lift,#pr-tabs,#pr-shortcuts"));
+      "#pr-pins,#pr-pop,#pr-hairline,#pr-pill,#pr-burger," +
+      "#pr-menu,#pr-sheet,#pr-card,#pr-composer,#pr-scrim,#pr-lift,#pr-tabs,#pr-shortcuts,#pr-docs"));
   }
   function isVisible(el) {
     if (!el || !el.isConnected) return false;
@@ -155,39 +195,23 @@
     return null;
   }
   function esc(s) {
-    return (s || "").replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; });
+    // v6.4 — also escapes quotes: the docs-drawer links interpolate esc() output
+    // straight into href="…"/title="…" attributes, not just text nodes, so an
+    // unescaped quote in a doc title/url could break out of the attribute.
+    return (s || "").replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; });
   }
   function anchorMeta(el) {
     return { selector: selectorFor(el), anchorText: snippet(el, 140), section: nearestSection(el), tag: el.tagName.toLowerCase() };
   }
 
   /* ---- styles ------------------------------------------------------------- */
-  /* v6.3 — desktop chrome retokenised onto the same --pr-* Prism tokens as
-   * mobile (see cssMobile below): monochrome shell, --pr-accent only on
-   * active/selected states, --pr-signal reserved for Send. Light+dark for
-   * free since the tokens already carry both facets. */
+  /* v7.0 — desktop no longer has its own chrome shell (rail/badge); it shares
+   * cssMobile's toolbar/composer/drawer wholesale (see below) and only keeps
+   * what's genuinely desktop-only: the click-to-comment popover, the
+   * hover/edit-in-place affordances, and the keyboard-shortcuts overlay. All
+   * still retokenised onto the same --pr-* Prism tokens as mobile. */
   var cssDesktop =
-    "#pr-root,#pr-pop,#pr-badge,#pr-shortcuts{font-family:'Hanken Grotesk',ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif}" +
-    "#pr-border{position:fixed;inset:0;border:7px solid var(--pr-ink);pointer-events:none;z-index:2147481000}" +
-    "#pr-badge{position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:2147481500;background:var(--pr-ink);color:var(--pr-card);font-size:10px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;padding:5px 16px;border-radius:0 0 9px 9px}" +
-    "#pr-badge .d{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--pr-accent);margin-right:7px;vertical-align:middle}" +
-    "#pr-root{position:fixed;right:14px;top:84px;z-index:2147483000;width:326px;max-height:calc(100vh - 104px);display:flex;flex-direction:column;background:var(--pr-card);color:var(--pr-ink);border:1px solid var(--pr-bd);border-radius:14px;box-shadow:0 18px 50px rgba(8,24,38,.24);overflow:hidden}" +
-    "#pr-root *{box-sizing:border-box}" +
-    "#pr-hd{display:flex;align-items:center;gap:9px;padding:12px 14px;background:var(--pr-ink);color:var(--pr-card);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;font-weight:800}" +
-    "#pr-hd .cnt{margin-left:auto;background:rgba(255,255,255,.18);border-radius:99px;padding:2px 9px;font-size:11px}" +
-    "#pr-controls{padding:13px 14px;display:flex;flex-direction:column;gap:10px;border-bottom:1px solid var(--pr-line)}" +
-    "#pr-controls label{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--pr-ink2);display:block;margin-bottom:4px}" +
-    "#pr-name{width:100%;border:1px solid var(--pr-bd);background:var(--pr-card);color:var(--pr-ink);border-radius:8px;padding:8px 10px;font-size:13px}" +
-    "#pr-btns{display:flex;gap:8px}.pr-b{flex:1;border:none;border-radius:8px;padding:9px 10px;font-size:12.5px;font-weight:700;cursor:pointer}" +
-    ".pr-b.add{background:var(--pr-tint);color:var(--pr-ink)}.pr-b.add.active{background:var(--pr-accent);color:#fff}" +
-    ".pr-b.ex{background:var(--pr-ink);color:var(--pr-card)}.pr-b.gh{background:var(--pr-tint);color:var(--pr-ink2)}" +
-    ".pr-b.edit{background:var(--pr-tint);color:var(--pr-ink)}.pr-b.edit.active{background:var(--pr-accent);color:#fff}" +
-    ".pr-b.send{background:var(--pr-signal);color:#fff}.pr-b.busy{opacity:.6}" +
-    "#pr-list{overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:8px;background:var(--pr-tint)}" +
-    "#pr-empty{padding:18px 10px;text-align:center;font-size:12px;color:var(--pr-ink2)}" +
-    ".pr-row{background:var(--pr-card);border:1px solid var(--pr-line);border-left:3px solid var(--pr-accent);border-radius:9px;padding:10px 11px;cursor:pointer}" +
-    ".pr-row .txt{font-size:12.5px;line-height:1.45;color:var(--pr-ink)}" +
-    ".pr-row .del{float:right;color:var(--pr-ink2);background:none;border:none;cursor:pointer;font-size:15px}" +
+    "#pr-pop,#pr-shortcuts{font-family:'Hanken Grotesk',ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif}" +
     "body.pr-commenting *{cursor:crosshair!important}.pr-hl{outline:2px dashed var(--pr-accent)!important}" +
     "#pr-pop{position:absolute;z-index:2147483600;width:248px;background:var(--pr-card);color:var(--pr-ink);border-radius:11px;box-shadow:0 14px 40px rgba(8,24,38,.3);border:1px solid var(--pr-bd);padding:13px}" +
     "#pr-pop .pr-pop-head{font-size:10.5px;color:var(--pr-ink2);margin-bottom:8px;line-height:1.4}" +
@@ -203,9 +227,10 @@
     "#pr-pop .pr-pop-remind{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}" +
     "#pr-pop .pr-pop-remind[hidden]{display:none}" +
     "#pr-pop .pr-pop-remind button{border:1px solid var(--pr-bd);background:var(--pr-card);color:var(--pr-ink);border-radius:99px;padding:6px 10px;font-size:11.5px;cursor:pointer}" +
-    /* v6.3 — theme control + keyboard-shortcut hint in the desktop panel */
-    "#pr-controls .pr-kbd-hint{font-size:10px;line-height:1.6;color:var(--pr-ink2);margin-top:2px}" +
-    "#pr-controls .pr-kbd-hint kbd{font:inherit;font-size:9.5px;font-weight:700;color:var(--pr-ink);background:var(--pr-tint);border:1px solid var(--pr-bd);border-radius:4px;padding:1px 4px}" +
+    /* v6.3 — keyboard-shortcut hint, now rendered inside the shared notes
+     * drawer (desktop only — see openDrawer) instead of a permanent rail. */
+    ".pr-kbd-hint{font-size:10px;line-height:1.6;color:var(--pr-ink2)}" +
+    ".pr-kbd-hint kbd{font:inherit;font-size:9.5px;font-weight:700;color:var(--pr-ink);background:var(--pr-tint);border:1px solid var(--pr-bd);border-radius:4px;padding:1px 4px}" +
     /* v6.3 — shortcuts cheat-sheet overlay (desktop only) */
     "#pr-shortcuts{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:2147483647;width:320px;max-width:90vw;background:var(--pr-card);border:1px solid var(--pr-bd);border-radius:14px;box-shadow:0 22px 60px rgba(8,24,38,.32);color:var(--pr-ink);font-size:13px;overflow:hidden}" +
     "#pr-shortcuts .hd{display:flex;align-items:center;padding:12px 14px;font-weight:800;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--pr-line);background:var(--pr-tint)}" +
@@ -223,7 +248,9 @@
     /* explicit theme override (manual toggle) — beats the media query by specificity */
     ":root[data-pr-theme=light]{--pr-ink:#141A21;--pr-ink2:#6B7785;--pr-surface:rgba(255,255,255,.72);--pr-card:#fff;--pr-line:rgba(20,26,33,.10);--pr-bd:rgba(20,26,33,.18);--pr-tint:rgba(20,26,33,.05);--pr-scrim:rgba(8,24,38,.3);--pr-accent:#306FA8;--pr-signal:#B0552E}" +
     ":root[data-pr-theme=dark]{--pr-ink:#E8EEF2;--pr-ink2:#8B97A4;--pr-surface:rgba(8,24,38,.42);--pr-card:#12293C;--pr-line:rgba(232,238,242,.12);--pr-bd:rgba(232,238,242,.22);--pr-tint:rgba(232,238,242,.08);--pr-scrim:rgba(8,24,38,.55);--pr-accent:#4F9EDB;--pr-signal:#C8794F}" +
-    ".pr-seg3{display:flex;gap:6px;margin:2px 0 4px}.pr-seg3 button{flex:1;border:1px solid var(--pr-bd);background:var(--pr-card);color:var(--pr-ink);border-radius:9px;padding:9px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;min-height:40px}.pr-seg3 button.on{background:var(--pr-accent);color:#fff}" +
+    /* v6.8 — OLED: true-black surface, slightly-grey (not pure white) ink; manual-only, no prefers-color-scheme match */
+    ":root[data-pr-theme=oled]{--pr-ink:#C9CED4;--pr-ink2:#6B7079;--pr-surface:rgba(0,0,0,.55);--pr-card:#0C0D10;--pr-line:rgba(255,255,255,.09);--pr-bd:rgba(255,255,255,.18);--pr-tint:rgba(255,255,255,.06);--pr-scrim:rgba(0,0,0,.7);--pr-accent:#4F9EDB;--pr-signal:#C8794F}" +
+    ".pr-seg4{display:flex;gap:4px;margin:2px 0 4px}.pr-seg4 button{flex:1;border:1px solid var(--pr-bd);background:var(--pr-card);color:var(--pr-ink);border-radius:9px;padding:9px 2px;font:inherit;font-size:12.5px;font-weight:600;white-space:nowrap;cursor:pointer;min-height:40px}.pr-seg4 button.on{background:var(--pr-accent);color:#fff}" +
     "#pr-menu .drawer-list{max-height:44vh;overflow-y:auto;border-top:.5px solid var(--pr-line)}" +
     "#pr-menu .dr{display:flex;align-items:flex-start;gap:9px;width:auto;padding:12px 16px;border-bottom:.5px solid var(--pr-line);font-size:14px;font-weight:500;text-align:left}" +
     "#pr-menu .dr .k{font-size:11px;color:var(--pr-ink2);flex:none;min-width:60px;padding-top:2px}#pr-menu .dr .t{flex:1;line-height:1.35}" +
@@ -242,6 +269,11 @@
     "#pr-pill .snd{position:relative}#pr-pill .snd .dot{position:absolute;top:9px;right:7px;width:6px;height:6px;border-radius:50%;background:var(--pr-signal)}" +
     "#pr-pill svg{width:19px;height:19px;stroke:var(--pr-ink);fill:none;stroke-width:1.8}" +
     "#pr-pill .snd svg{stroke:var(--pr-signal)}" +
+    /* v7.0 — desktop-only comment/edit mode toggles (arm-then-click, since
+     * there's no long-press on a mouse); mirrors the old rail's + Comment/
+     * ✎ Edit buttons but lives in the pill so mobile and desktop share one
+     * toolbar. */
+    "#pr-pill .seg.mode.on{background:var(--pr-accent);border-radius:50%}#pr-pill .seg.mode.on svg{stroke:#fff}" +
     "#pr-scrim{position:fixed;inset:0;z-index:2147483500;background:var(--pr-scrim);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px)}" +
     "#pr-lift{position:fixed;z-index:2147483520;pointer-events:none;border-radius:8px;box-shadow:0 18px 50px rgba(23,15,23,.35);transform:scale(1.02);transform-origin:center;background:var(--pr-card);overflow:hidden}" +
     "#pr-menu{position:fixed;z-index:2147483540;width:250px;background:var(--pr-surface);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:1px solid var(--pr-bd);border-radius:16px;overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,.65),0 8px 28px rgba(8,24,38,.14);color:var(--pr-ink)}" +
@@ -281,21 +313,75 @@
     ".pr-approve.on{background:var(--pr-ink)}.pr-approve svg{width:12px;height:12px;stroke:transparent;stroke-width:2.6;fill:none}.pr-approve.on svg{stroke:var(--pr-card)}";
 
   /* v6.2 tabs — reuses the same tokens as cssMobile (defined at :root, available in
-   * both desktop and mobile modes since both style blocks are always injected). */
+   * both desktop and mobile modes since both style blocks are always injected).
+   * v7.0 — base position dropped to top:2px (was 26px, to clear the old desktop
+   * wordmark): both platforms now show just the 2px hairline up top. */
   var cssTabs =
-    "#pr-tabs{position:fixed;top:26px;left:0;right:0;z-index:2147483610;display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;background:var(--pr-surface);-webkit-backdrop-filter:blur(14px) saturate(160%);backdrop-filter:blur(14px) saturate(160%);border-bottom:1px solid var(--pr-bd);scrollbar-width:none}" +
+    "#pr-tabs{position:fixed;top:2px;left:0;right:0;z-index:2147483610;display:flex;overflow-x:auto;-webkit-overflow-scrolling:touch;background:var(--pr-surface);-webkit-backdrop-filter:blur(14px) saturate(160%);backdrop-filter:blur(14px) saturate(160%);border-bottom:1px solid var(--pr-bd);scrollbar-width:none}" +
     "#pr-tabs::-webkit-scrollbar{display:none}" +
-    "body.pr-m #pr-tabs{top:2px}" +
     ".pr-tab{flex:none;border:none;background:none;color:var(--pr-ink2);font-family:'Hanken Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,system-ui,sans-serif;font-size:13.5px;font-weight:600;padding:11px 16px;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent}" +
     ".pr-tab.on{color:var(--pr-accent);border-bottom-color:var(--pr-accent);font-weight:700}";
 
+  /* v7.0 — ☰ docs button + slide-in drawer. Reachable on BOTH platforms (a
+   * new capability for mobile, which never had docs nav before). Only ever
+   * built when window.PROOFING_DOCS is a non-empty, scheme-safe list — see
+   * buildHamburger() below. Reuses the #pr-scrim/closeOverlays() plumbing the
+   * notes drawer and long-press menu already share, so only one overlay is
+   * ever open at a time. */
+  var cssDocs =
+    "#pr-burger{position:fixed;top:max(14px,env(safe-area-inset-top));left:14px;z-index:2147483620;width:40px;height:40px;border-radius:50%;border:1px solid var(--pr-bd);background:var(--pr-surface);-webkit-backdrop-filter:blur(14px) saturate(160%);backdrop-filter:blur(14px) saturate(160%);box-shadow:0 8px 24px rgba(8,24,38,.14);color:var(--pr-ink);display:flex;align-items:center;justify-content:center;cursor:pointer}" +
+    "#pr-burger svg{width:18px;height:18px;stroke:var(--pr-ink);fill:none;stroke-width:2}" +
+    "#pr-docs{position:fixed;top:0;left:0;bottom:0;z-index:2147483540;width:min(300px,84vw);background:var(--pr-surface);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border-right:1px solid var(--pr-bd);box-shadow:8px 0 28px rgba(8,24,38,.14);color:var(--pr-ink);display:flex;flex-direction:column;overflow:hidden;transform:translateX(-100%);transition:transform .18s ease}" +
+    "#pr-docs.open{transform:translateX(0)}" +
+    "#pr-docs .pr-docs-hd{display:flex;align-items:center;padding:16px 16px 10px;padding-top:max(16px,env(safe-area-inset-top));font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--pr-ink2);font-weight:700}" +
+    "#pr-docs .pr-docs-hd .x{margin-left:auto;background:none;border:none;color:var(--pr-ink2);font-size:20px;cursor:pointer;line-height:1;padding:0}" +
+    "#pr-docs .pr-docs-list{flex:1;overflow-y:auto;padding:2px 10px 16px;display:flex;flex-direction:column;gap:2px}" +
+    ".pr-doc-link{display:block;padding:10px 10px;border-radius:9px;font-size:13.5px;line-height:1.35;color:var(--pr-ink);text-decoration:none}" +
+    ".pr-doc-link:hover{background:var(--pr-tint)}.pr-doc-link.on{background:var(--pr-accent);color:#fff}" +
+    ".pr-doc-link .src{display:block;font-size:10.5px;color:var(--pr-ink2);margin-top:2px}.pr-doc-link.on .src{color:rgba(255,255,255,.8)}";
+
+  /* v7.0 — desktop scale-up: the SAME pill/composer/drawer as mobile, ~1.3x
+   * for pointer-sized targets on a 1280-1440 viewport. Two extra pill segs
+   * (comment/edit mode toggles, desktop-only — no long-press to fall back on)
+   * are sized alongside. Higher specificity than cssMobile's base rules
+   * (body.pr-d adds a class) so these always win regardless of declaration
+   * order. */
+  var cssDesktopScale =
+    "body.pr-d #pr-burger{width:46px;height:46px;top:18px;left:18px}body.pr-d #pr-burger svg{width:20px;height:20px}" +
+    /* mobile: push page content below the fixed ☰ so it doesn't sit over the top-left header. desktop content is centred, no clash. */
+    "body.pr-m.pr-nav{padding-top:62px!important}" +
+    "body.pr-d #pr-docs{width:min(340px,88vw)}" +
+    "body.pr-d #pr-docs .pr-docs-hd{font-size:12px;padding:20px 18px 12px}" +
+    "body.pr-d .pr-doc-link{font-size:14.5px;padding:12px 12px}" +
+    "body.pr-d #pr-pill{height:56px;padding:0 8px;gap:3px;bottom:32px}" +
+    "body.pr-d #pr-pill .seg{min-width:50px;height:56px;font-size:17px}" +
+    "body.pr-d #pr-pill .seg.mode{font-size:19px}" +
+    "body.pr-d #pr-pill .seg.busy{opacity:.5}" +
+    "body.pr-d #pr-pill .cnt{padding:0 14px;gap:8px}" +
+    "body.pr-d #pr-pill .nn{min-width:54px;font-size:16px}" +
+    "body.pr-d #pr-pill .div{height:26px}" +
+    "body.pr-d #pr-pill svg{width:23px;height:23px}" +
+    "body.pr-d #pr-composer{left:50%;right:auto;transform:translateX(-50%);width:min(640px,90vw);border-radius:20px 20px 0 0;padding:18px 20px calc(18px + env(safe-area-inset-bottom))}" +
+    "body.pr-d #pr-composer .chips{padding-bottom:12px;gap:10px}" +
+    "body.pr-d #pr-composer .chips button{font-size:14.5px;padding:10px 16px}" +
+    "body.pr-d #pr-composer .q{font-size:12.5px}" +
+    "body.pr-d #pr-composer input{font-size:16.5px;padding:13px 15px;border-radius:14px}" +
+    "body.pr-d #pr-composer .go{width:44px;height:44px}body.pr-d #pr-composer .go svg{width:19px;height:19px}" +
+    "body.pr-d #pr-menu{width:min(380px,92vw)}" +
+    "body.pr-d #pr-menu button{font-size:16px;padding:14px 18px}" +
+    "body.pr-d #pr-menu .dr{font-size:15px}";
+
   var st = document.createElement("style");
-  st.textContent = cssDesktop + cssMobile + cssTabs;
+  st.textContent = cssDesktop + cssMobile + cssTabs + cssDocs + cssDesktopScale;
   document.head.appendChild(st);
 
   var ICON_CHAT = '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"/></svg>';
   var ICON_SEND = '<svg viewBox="0 0 24 24"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>';
   var ICON_CHECK = '<svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>';
+  // v7.0 — desktop pill mode toggles + the docs hamburger
+  var ICON_COMMENT = '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>';
+  var ICON_EDIT = '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+  var ICON_BURGER = '<svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg>';
 
   /* ======================================================================== */
   /*  SHARED: reviewer, edit-in-place, annotations, extract/send              */
@@ -346,6 +432,19 @@
     var sy = window.scrollY || window.pageYOffset || 0;
     render();
     requestAnimationFrame(function () { if (Math.abs((window.scrollY || 0) - sy) > 3) window.scrollTo(0, sy); });
+  }
+  // Bring an anchored element into view for annotating. Bias it toward the
+  // UPPER portion of the *visible* viewport (not the full-height centre) so it
+  // stays above where the composer + soft keyboard dock — block:center / a
+  // full-innerHeight centre reads as "scrolled too far down" once the keyboard
+  // rises and the reviewer has to scroll back up (observed on iOS, 2026-07-14).
+  function scrollAnchorIntoView(el) {
+    if (!el) return;
+    var vv = window.visualViewport;
+    var vh = (vv && vv.height) || window.innerHeight || 600;
+    var top = el.getBoundingClientRect().top + (window.scrollY || window.pageYOffset || 0);
+    var y = top - Math.max(88, vh * 0.28);
+    window.scrollTo({ top: Math.max(0, y), behavior: "smooth" });
   }
   function setAnno(kind, el, extra, askId) {
     var keySel = selectorFor(el);
@@ -586,68 +685,69 @@
   pinsLayer.style.cssText = "position:absolute;top:0;left:0;width:0;height:0;z-index:2147482000";
   var order = [];
   function allAnchored() { return state.comments.concat(state.edits, state.annos); }
+  // v7.0 — pins + the pill are now built for BOTH platforms (desktop lost its
+  // rail list, so the dot is the only on-page marker for an existing note; the
+  // stepper/count live in the shared pill). Only the ADD/EDIT entry gesture
+  // still branches on IS_MOBILE (long-press vs arm-then-click).
   function render() {
     renderAsks(); paintAsks();
     pinsLayer.innerHTML = ""; order = [];
     allAnchored().forEach(function (a) {
       var el = locate(a); if (!el || !isVisible(el)) return;
       a._top = el.getBoundingClientRect().top + window.scrollY; order.push(a);
-      if (IS_MOBILE) {
-        var r = el.getBoundingClientRect();
-        var d = document.createElement("div"); d.className = "pr-dot" + (activeId === a.id ? " on" : "");
-        d.style.left = r.right + window.scrollX - 6 + "px"; d.style.top = r.top + window.scrollY + 10 + "px";
-        d.addEventListener("click", function (ev) { ev.stopPropagation(); openCard(a); });
-        pinsLayer.appendChild(d);
-      }
+      var r = el.getBoundingClientRect();
+      var d = document.createElement("div"); d.className = "pr-dot" + (activeId === a.id ? " on" : "");
+      d.style.left = r.right + window.scrollX - 6 + "px"; d.style.top = r.top + window.scrollY + 10 + "px";
+      d.addEventListener("click", function (ev) { ev.stopPropagation(); openCard(a); });
+      pinsLayer.appendChild(d);
     });
     order.sort(function (a, b) { return a._top - b._top; });
-    if (IS_MOBILE) updatePill(); else renderDesktopList();
+    updatePill();
   }
 
   /* ======================================================================== */
-  /*  DESKTOP UI (v5 behaviour)                                               */
+  /*  DESKTOP: click-to-comment + edit-in-place (v7.0 — the chrome itself is  */
+  /*  now shared with mobile, built by buildToolbar() below; what's left here */
+  /*  is genuinely desktop-only: hover-highlight, the click-driven popover,   */
+  /*  and the comment/edit ARM buttons that now live in the pill instead of a */
+  /*  removed rail — mouse press-hold has no long-press to fall back on.)     */
   /* ======================================================================== */
-  var root, addBtn, editBtn, hoverEl = null;
-  function buildDesktop() {
-    var border = document.createElement("div"); border.id = "pr-border"; document.body.appendChild(border);
-    var badge = document.createElement("div"); badge.id = "pr-badge"; badge.innerHTML = '<span class="d"></span>Proofing mode'; document.body.appendChild(badge);
-    root = document.createElement("div"); root.id = "pr-root";
-    root.innerHTML =
-      '<div id="pr-hd"><span class="d"></span>Proofing room<span class="cnt" id="pr-cnt">0</span></div>' +
-      '<div id="pr-controls"><div><label>Reviewer</label><input id="pr-name" placeholder="Your name"/></div>' +
-      '<div class="pr-seg3" id="pr-theme3"><button type="button" data-th="">Auto</button><button type="button" data-th="light">Light</button><button type="button" data-th="dark">Dark</button></div>' +
-      '<div id="pr-btns"><button class="pr-b add" id="pr-add">+ Comment</button><button class="pr-b edit" id="pr-edit">✎ Edit</button></div>' +
-      '<button class="pr-b send" id="pr-send">' + SEND_LABEL + '</button>' +
-      '<button class="pr-b ex" id="pr-ex">Extract JSON</button>' +
-      '<button class="pr-b gh" id="pr-clear">Clear all</button>' +
-      '<div class="pr-kbd-hint">Shortcuts: <kbd>C</kbd> comment · <kbd>E</kbd> edit · <kbd>J/K</kbd> step · <kbd>[/]</kbd> tabs · <kbd>&#8984;&crarr;</kbd> send · <kbd>?</kbd> help</div>' +
-      '</div><div id="pr-list"></div>';
-    document.body.appendChild(root);
-    var nm = root.querySelector("#pr-name"); nm.value = state.reviewer;
-    nm.addEventListener("input", function () { noteReviewer(nm.value); });
-    addBtn = root.querySelector("#pr-add"); editBtn = root.querySelector("#pr-edit");
-    addBtn.addEventListener("click", function () { setCommenting(!state.commenting); });
-    editBtn.addEventListener("click", function () { setEditing(!state.editing); });
-    root.querySelector("#pr-ex").addEventListener("click", extract);
-    var sb = root.querySelector("#pr-send"); if (!WEBHOOK) sb.style.display = "none"; sb.addEventListener("click", function () { sendToWebhook(sb); });
-    root.querySelector("#pr-clear").addEventListener("click", function () {
-      if (!confirm("Clear all notes on this page?")) return;
-      state.edits.forEach(function (ed) { var el = locate(ed); if (el) { el.textContent = ed.original; el.classList.remove("pr-edited"); } });
-      state.comments = []; state.edits = []; state.annos = []; state.sent = false; persist(); render();
-    });
-    var theme3 = root.querySelector("#pr-theme3");
-    function paintTheme3() {
-      var cur = getTheme();
-      Array.prototype.forEach.call(theme3.querySelectorAll("[data-th]"), function (b) { b.classList.toggle("on", b.getAttribute("data-th") === cur); });
-    }
-    paintTheme3();
-    theme3.addEventListener("click", function (ev) {
-      var b = ev.target.closest("[data-th]"); if (!b) return;
-      setTheme(b.getAttribute("data-th")); paintTheme3();
-    });
+  var addBtn, editBtn, hoverEl = null;
+
+  /* ---- docs list (v7.0): opt-in via window.PROOFING_DOCS =
+   * [{title,url,source}], surfaced through the ☰ hamburger drawer (built in
+   * buildHamburger, shared by both platforms) — replaces the old left rail.
+   * Absent/empty → no hamburger at all. Links preserve the current proof mode
+   * so hopping between docs stays in review mode. */
+  function proofSuffixFor(url) {
+    var mode = FORCE_MOBILE ? "proof=mobile" : "proof";
+    var hi = url.indexOf("#"), hash = hi >= 0 ? url.slice(hi) : "", base = hi >= 0 ? url.slice(0, hi) : url;
+    return base + (base.indexOf("?") >= 0 ? "&" : "?") + mode + hash;
   }
-  function setCommenting(on) { if (on && state.editing) setEditing(false); state.commenting = on; document.body.classList.toggle("pr-commenting", on); addBtn.classList.toggle("active", on); addBtn.textContent = on ? "Click an element…" : "+ Comment"; }
-  function setEditing(on) { if (on && state.commenting) setCommenting(false); state.editing = on; editBtn.classList.toggle("active", on); editBtn.textContent = on ? "Editing…" : "✎ Edit"; }
+
+  // Defence-in-depth: PROOFING_DOCS urls are supplied by the host page, but
+  // never render an <a href> for a script-executing scheme — a doc whose
+  // url is javascript:/vbscript:/data: is dropped from the drawer entirely
+  // (not rendered as "#").
+  function isSafeDocUrl(url) {
+    var v = String(url || "").replace(/[\u0000-\u0020]+/g, "").toLowerCase();
+    return v.indexOf("javascript:") !== 0 && v.indexOf("vbscript:") !== 0 && v.indexOf("data:") !== 0;
+  }
+  function docMatchesHere(d) {
+    try { return new URL(d.url, location.href).pathname === location.pathname; }
+    catch (e) { return d.url === location.pathname || d.url === location.href; }
+  }
+  function setCommenting(on) {
+    if (on && state.editing) setEditing(false);
+    state.commenting = on;
+    document.body.classList.toggle("pr-commenting", on);
+    if (addBtn) { addBtn.classList.toggle("on", on); addBtn.title = on ? "Click an element… (Esc to cancel)" : "Comment mode (C)"; }
+  }
+  function setEditing(on) {
+    if (on && state.commenting) setCommenting(false);
+    state.editing = on;
+    if (editBtn) { editBtn.classList.toggle("on", on); editBtn.title = on ? "Editing… click a text element" : "Edit mode (E)"; }
+  }
   document.addEventListener("mouseover", function (e) { if (IS_MOBILE || !state.commenting || isUi(e.target)) return; if (hoverEl) hoverEl.classList.remove("pr-hl"); hoverEl = e.target; e.target.classList.add("pr-hl"); }, true);
   document.addEventListener("click", function (e) {
     if (state.editing && !isUi(e.target) && isEditable(e.target)) { e.preventDefault(); e.stopPropagation(); startEdit(e.target); return; }
@@ -706,34 +806,9 @@
       else { pickDate(el); } // native picker; commitRemind fires on change (shared with mobile)
     });
   }
-  /* notes-list parity (v6.3): allAnchored() already spans every kind
-   * (comments/edits/answers/reactions/approvals/done/reminders) across every
-   * tab — it's not filtered by the currently-visible `order`. What was
-   * missing was the cross-tab jump: reuse the same owner-tab-switch pattern
-   * as the mobile drawer's jump handler (openDrawer's [data-jump] branch). */
-  function tabSuffixFor(a) {
-    if (!tabPanels.length) return "";
-    var el = locate(a), owner = el && findOwnerTab(el);
-    return (owner && owner.label !== activeTab) ? " · " + owner.label : "";
-  }
-  function renderDesktopList() {
-    root.querySelector("#pr-cnt").textContent = totalCount();
-    var list = root.querySelector("#pr-list"); list.innerHTML = "";
-    var all = allAnchored();
-    if (!all.length) { list.innerHTML = '<div id="pr-empty">Nothing yet. <b>+ Comment</b> or <b>✎ Edit</b>.</div>'; return; }
-    all.forEach(function (a) {
-      var row = document.createElement("div"); row.className = "pr-row";
-      row.innerHTML = '<button class="del">×</button><div class="txt"><b>' + esc(a.author || "anon") + '</b> · ' + esc(kindLabel(a) + tabSuffixFor(a)) + '</div>' + (a.text ? '<div class="txt">' + esc(a.text) + '</div>' : "") + (a.original ? '<div class="was">' + esc(a.original) + '</div>' : "");
-      row.querySelector(".del").addEventListener("click", function (ev) { ev.stopPropagation(); removeById(a.id); });
-      row.addEventListener("click", function () {
-        var el = locate(a);
-        var owner = el && findOwnerTab(el);
-        if (owner && owner.label !== activeTab) { setActiveTab(owner.label); el = locate(a); } // jump switches tab first, like the mobile drawer
-        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-      });
-      list.appendChild(row);
-    });
-  }
+  // v7.0 — the desktop notes LIST (renderDesktopList) is gone with the rail;
+  // openCard()/openDrawer() below (shared with mobile) already show every
+  // note, including its cross-tab owner (shortKind()), so nothing is lost.
   function kindLabel(a) {
     return a.kind === "edit" ? "edit" : a.kind === "answer" ? "answer: " + a.value : a.kind === "reaction" ? (a.value === "up" ? "👍 looks right" : "👎 off the mark") : a.kind === "approval" ? "approved ✓" : a.kind === "done" ? "done ✓" : a.kind === "reminder" ? "remind " + String(a.at || "").slice(0, 16).replace("T", " ") : "comment";
   }
@@ -784,12 +859,13 @@
     if (dpop) { dpop.remove(); dpop = null; }
     closeCard();
     hideShortcutsOverlay();
+    closeOverlays(); // v7.0 — also dismisses the notes/docs drawer if open (shared with mobile)
   }
   document.addEventListener("keydown", function (e) {
     if (IS_MOBILE) return;
     var t = e.target, tag = t && t.tagName;
     if (e.key === "Escape") {
-      if (dpop || cardEl || shortcutsEl) { e.preventDefault(); closeAllDesktopOverlays(); }
+      if (dpop || cardEl || shortcutsEl || menuEl) { e.preventDefault(); closeAllDesktopOverlays(); }
       return;
     }
     var typing = !!(t && (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable));
@@ -809,15 +885,24 @@
   }, true);
 
   /* ======================================================================== */
-  /*  MOBILE UI v6 — Hairline                                                 */
+  /*  TOOLBAR — pill / composer / drawer, shared by BOTH platforms (v7.0).    */
+  /*  Was "MOBILE UI v6 — Hairline"; desktop now reuses it wholesale (scaled   */
+  /*  up via body.pr-d, see cssDesktopScale) instead of its own rail. The     */
+  /*  only branch left is the comment/edit ENTRY gesture: mobile long-presses */
+  /*  (installLongPress), desktop arms a mode via two extra pill buttons then */
+  /*  clicks (setCommenting/setEditing, defined in the DESKTOP section above).*/
   /* ======================================================================== */
   var pill, stepIdx = -1, activeId = null, cardEl = null, scrim = null, menuEl = null, liftEl = null, composer = null;
-  function buildMobile() {
-    document.documentElement.classList.add("pr-on");
-    document.body.classList.add("pr-m");
+  function buildToolbar() {
+    if (IS_MOBILE) document.documentElement.classList.add("pr-on");
+    document.body.classList.add(IS_MOBILE ? "pr-m" : "pr-d");
     var hair = document.createElement("div"); hair.id = "pr-hairline"; document.body.appendChild(hair);
     pill = document.createElement("div"); pill.id = "pr-pill";
     pill.innerHTML =
+      (!IS_MOBILE ?
+        '<button type="button" class="seg mode" id="pr-mode-add" title="Comment mode (C)">' + ICON_COMMENT + '</button>' +
+        '<button type="button" class="seg mode" id="pr-mode-edit" title="Edit mode (E)">' + ICON_EDIT + '</button>' +
+        '<span class="div"></span>' : '') +
       '<button class="seg cnt" id="pr-count">' + ICON_CHAT + '<span id="pr-cn">0</span></button>' +
       '<span class="div"></span><button class="seg" id="pr-prev">‹</button><span class="seg nn" id="pr-nn">0/0</span><button class="seg" id="pr-next">›</button>' +
       '<span class="div"></span><button class="seg snd" id="pr-send" title="' + SEND_LABEL + '">' + ICON_SEND + '</button>';
@@ -828,10 +913,40 @@
     var sendSeg = document.getElementById("pr-send");
     if (!WEBHOOK) sendSeg.style.display = "none";
     sendSeg.addEventListener("click", function () { sendToWebhook(sendSeg); });
-    installLongPress();
-    var stub = document.createElement("div"); stub.id = "pr-root"; stub.style.display = "none";
-    stub.innerHTML = '<input id="pr-name"><button id="pr-add"></button><button id="pr-ex"></button>';
-    document.body.appendChild(stub);
+    if (IS_MOBILE) {
+      installLongPress();
+    } else {
+      addBtn = document.getElementById("pr-mode-add"); editBtn = document.getElementById("pr-mode-edit");
+      addBtn.addEventListener("click", function () { setCommenting(!state.commenting); });
+      editBtn.addEventListener("click", function () { setEditing(!state.editing); });
+    }
+    buildHamburger();
+  }
+
+  /* ---- ☰ docs button (v7.0): both platforms, opt-in via window.PROOFING_DOCS.
+   * Shares the notes drawer's scrim/closeOverlays() plumbing below, so at
+   * most one overlay is ever open. Absent/empty list → no button at all. */
+  var DOCS = (Array.isArray(window.PROOFING_DOCS) ? window.PROOFING_DOCS : []).filter(function (d) { return d && d.url && isSafeDocUrl(d.url); });
+  var burgerEl = null;
+  function buildHamburger() {
+    if (!DOCS.length) return; // no declared docs — no hamburger, either platform
+    burgerEl = document.createElement("button"); burgerEl.type = "button"; burgerEl.id = "pr-burger"; burgerEl.title = "Docs"; burgerEl.innerHTML = ICON_BURGER;
+    burgerEl.addEventListener("click", function (ev) { ev.stopPropagation(); if (menuEl && menuEl.id === "pr-docs") closeOverlays(); else openDocsDrawer(); });
+    document.body.appendChild(burgerEl);
+    document.body.classList.add("pr-nav"); // clear page content below the fixed ☰ (mobile)
+  }
+  function openDocsDrawer() {
+    closeCard(); closeOverlays(); hideBurgerForOverlay();
+    scrim = document.createElement("div"); scrim.id = "pr-scrim"; scrim.addEventListener("click", closeOverlays); document.body.appendChild(scrim);
+    menuEl = document.createElement("div"); menuEl.id = "pr-docs";
+    var links = DOCS.map(function (d) {
+      var on = docMatchesHere(d);
+      return '<a class="pr-doc-link' + (on ? " on" : "") + '" href="' + esc(proofSuffixFor(d.url)) + '">' + esc(d.title || d.url) + (d.source ? '<span class="src">' + esc(d.source) + '</span>' : "") + '</a>';
+    }).join("");
+    menuEl.innerHTML = '<div class="pr-docs-hd">Docs<button type="button" class="x" title="Close">&times;</button></div><div class="pr-docs-list">' + links + '</div>';
+    document.body.appendChild(menuEl);
+    menuEl.querySelector(".x").addEventListener("click", closeOverlays);
+    requestAnimationFrame(function () { if (menuEl) menuEl.classList.add("open"); });
   }
   function updatePill() {
     if (!pill) return;
@@ -844,7 +959,7 @@
     if (!order.length) return;
     stepIdx = (stepIdx + dir + order.length) % order.length;
     var a = order[stepIdx], el = locate(a);
-    if (el) { var y = el.getBoundingClientRect().top + window.scrollY - window.innerHeight / 2; window.scrollTo({ top: Math.max(0, y), behavior: "smooth" }); }
+    scrollAnchorIntoView(el);
     setTimeout(function () { openCard(a); }, 260);
   }
 
@@ -868,14 +983,18 @@
   // (menu/composer/card/pill), or the menu tap that follows would be swallowed.
   document.addEventListener("click", function (e) {
     if (!swallow) return;
-    if (e.target.closest && e.target.closest("#pr-menu,#pr-composer,#pr-card,#pr-pill,#pr-sheet")) { swallow = false; return; }
+    if (e.target.closest && e.target.closest("#pr-menu,#pr-composer,#pr-card,#pr-pill,#pr-sheet,#pr-docs,#pr-burger")) { swallow = false; return; }
     swallow = false; e.preventDefault(); e.stopPropagation();
   }, true);
   function pressToOpen(el, fn) { var t = null; el.addEventListener("pointerdown", function () { t = setTimeout(fn, 450); }); ["pointerup", "pointercancel", "pointermove"].forEach(function (ev) { el.addEventListener(ev, function () { if (t) { clearTimeout(t); t = null; } }); }); }
 
-  function closeOverlays() { [scrim, menuEl, liftEl].forEach(function (n) { if (n) n.remove(); }); scrim = menuEl = liftEl = null; if (pill) pill.classList.remove("dim"); }
+  // v7.0 — the ☰ button shares its corner with any open drawer's own header
+  // (the docs drawer especially), so hide it while an overlay is up — each
+  // open*() below calls hideBurgerForOverlay(); closeOverlays() brings it back.
+  function closeOverlays() { [scrim, menuEl, liftEl].forEach(function (n) { if (n) n.remove(); }); scrim = menuEl = liftEl = null; if (pill) pill.classList.remove("dim"); if (burgerEl) burgerEl.style.display = ""; }
+  function hideBurgerForOverlay() { if (burgerEl) burgerEl.style.display = "none"; }
   function openMenu(el) {
-    closeCard(); closeOverlays();
+    closeCard(); closeOverlays(); hideBurgerForOverlay();
     scrim = document.createElement("div"); scrim.id = "pr-scrim"; scrim.addEventListener("click", closeOverlays); document.body.appendChild(scrim);
     var r = el.getBoundingClientRect();
     liftEl = document.createElement("div"); liftEl.id = "pr-lift";
@@ -982,7 +1101,7 @@
     return k;
   }
   function openDrawer() {
-    closeOverlays();
+    closeOverlays(); hideBurgerForOverlay();
     scrim = document.createElement("div"); scrim.id = "pr-scrim"; scrim.addEventListener("click", closeOverlays); document.body.appendChild(scrim);
     menuEl = document.createElement("div"); menuEl.id = "pr-menu";
     menuEl.style.cssText = "left:50%;transform:translateX(-50%);bottom:80px;top:auto;width:min(340px,94vw);max-height:80vh;display:flex;flex-direction:column";
@@ -991,10 +1110,14 @@
     // `order`, which only holds the active tab's items) so a tap can jump cross-tab.
     var rows = allAnchored().map(function (a) {
       return '<button class="dr" data-jump="' + a.id + '"><span class="k">' + esc(shortKind(a)) + '</span><span class="t">' + esc(a.text || a.anchorText || "") + '</span></button>';
-    }).join("") || '<div style="padding:16px;color:var(--pr-ink2);font-size:13px">No notes yet — long-press any line.</div>';
+    }).join("") || '<div style="padding:16px;color:var(--pr-ink2);font-size:13px">' + (IS_MOBILE ? "No notes yet — long-press any line." : "No notes yet — comment or edit any element.") + '</div>';
+    // v7.0 — the shortcuts hint that used to sit permanently in the right rail
+    // now lives here, desktop-only (mobile has no keyboard to hint at).
+    var kbdHint = !IS_MOBILE ? '<div style="padding:2px 14px 10px" class="pr-kbd-hint">Shortcuts: <kbd>C</kbd> comment · <kbd>E</kbd> edit · <kbd>J/K</kbd> step · <kbd>[/]</kbd> tabs · <kbd>&#8984;&crarr;</kbd> send · <kbd>?</kbd> help</div>' : '';
     menuEl.innerHTML =
       '<div style="padding:12px 14px 4px"><input id="pr-name" placeholder="Your name" value="' + esc(state.reviewer) + '" style="width:100%;font-size:16px;padding:11px;border:1px solid var(--pr-bd);border-radius:10px;background:var(--pr-card);color:var(--pr-ink)"></div>' +
-      '<div style="padding:6px 14px 2px"><div class="pr-seg3"><button data-th="">Auto</button><button data-th="light">Light</button><button data-th="dark">Dark</button></div></div>' +
+      '<div style="padding:6px 14px 2px"><div class="pr-seg4"><button data-th="">Auto</button><button data-th="light">Light</button><button data-th="dark">Dark</button><button data-th="oled">OLED</button></div></div>' +
+      kbdHint +
       '<div class="drawer-list">' + rows + '</div>' +
       '<button data-a="ex">Extract JSON<span class="ic">⤓</span></button>' +
       '<button data-a="clear">Clear notes<span class="ic">🗑</span></button>';
@@ -1012,7 +1135,7 @@
           var el = locate(a);
           var owner = el && findOwnerTab(el);
           if (owner && owner.label !== activeTab) { setActiveTab(owner.label); el = locate(a); } // switch tab before jumping
-          if (el) { var y = el.getBoundingClientRect().top + window.scrollY - window.innerHeight / 2; window.scrollTo({ top: Math.max(0, y), behavior: "smooth" }); }
+          scrollAnchorIntoView(el);
           setTimeout(function () { openCard(a); }, 260);
         }
         return;
@@ -1034,7 +1157,7 @@
 
   /* ---- boot --------------------------------------------------------------- */
   document.body.appendChild(pinsLayer);
-  if (IS_MOBILE) buildMobile(); else buildDesktop();
+  buildToolbar();
   initTabs();
   applyEdits();
   render();

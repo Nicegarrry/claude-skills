@@ -7,13 +7,14 @@ description: Use when someone wants to review, proof, comment on, mark up, or co
 
 ## Overview
 
-Proofing Room is a single drop-in script (`proofing-room.js`) that turns **any**
-HTML page into a review surface — on desktop and on mobile. A reviewer can pin
-comments, edit copy in place, answer inline questions the page declares
-(yes/no, a slider, a checkbox), react to anything, approve a whole section,
-and set a reminder — then export an **anchored JSON** describing everything,
-which an agent reads to action the feedback. No backend, no framework, no
-build step — it's vanilla JS that stores state in `localStorage`.
+Proofing Room is a single drop-in script (`proofing-room.js`, v7.0) that turns
+**any** HTML page into a review surface — on desktop and on mobile, sharing
+one unified floating toolbar across both. A reviewer can pin comments, edit
+copy in place, answer inline questions the page declares (yes/no, a slider, a
+checkbox), react to anything, approve a whole section, and set a reminder —
+then export an **anchored JSON** describing everything, which an agent reads
+to action the feedback. No backend, no framework, no build step — it's
+vanilla JS that stores state in `localStorage`.
 
 **Core loop:** agent builds HTML → human reviews in proofing mode (phone or
 desktop) → exports (or sends) JSON → agent applies the feedback. This skill
@@ -101,29 +102,58 @@ Pick the case that matches the target. In all cases, copy `proofing-room.js`
 
 ## What the reviewer can do
 
-**Desktop** (`?proof`):
-- **+ Comment** → click any element to pin a numbered comment to it.
-- **✎ Edit** → click prose to rewrite it in place; the original is kept.
-- From the same popover as a comment: react (👍/👎) and set a reminder.
-- Keyboard shortcuts: `C` comment the hovered element, `E` edit it, `J`/`K` (or
-  arrows) step through notes, `[`/`]` switch tabs, `⌘/Ctrl+Enter` send, `?` for
-  a shortcuts overlay.
-- **Reviewer** field stamps each note with a name. Light/dark/auto theme toggle.
+v7.0 unified the UI: desktop and mobile now share the **same** floating
+bottom toolbar — a transparent pill (note count · `‹ n/N ›` stepper · send)
+and the same notes drawer (tap/click the pill's count). The two platforms
+only differ in how you *start* annotating something:
+
+- **Desktop** (`?proof`): two extra pill buttons arm **comment** (+) or
+  **edit** (pencil) mode — click any element while armed to act on it (there's
+  no long-press on a mouse). Keyboard shortcuts: `C` comment the hovered
+  element, `E` edit it, `J`/`K` (or arrows) step through notes, `[`/`]` switch
+  tabs, `⌘/Ctrl+Enter` send, `?` for a shortcuts overlay. React (👍/👎) and set
+  a reminder from the same popover a comment opens.
+- **Mobile** (real phone, or `?proof=mobile` to preview on desktop) — the
+  "Hairline" interaction: **long-press any element** → a menu: Comment ·
+  Looks right · Off the mark · Edit text · Remind me. No separate "comment
+  mode" to toggle. Composer docks above the keyboard; quick-reply chips save a
+  note in one tap.
+
+Shared by both platforms:
+- Anchored cards open in place under the element, with edit/delete on comments.
+- **Notes drawer** (tap/click the pill's count): reviewer name, theme
+  (**Auto / Light / Dark / OLED**), Extract JSON, Clear all, and a full note
+  list — jump to any note, including ones on another tab.
 - **Extract JSON** downloads the handoff file; **Send** (only shown if a
   return channel is configured — see below) posts it instead.
 
-**Mobile** (real phone, or `?proof=mobile` to preview on desktop) — the
-"Hairline" UI:
-- **Long-press any element** → a menu: Comment · Looks right · Off the mark ·
-  Edit text · Remind me. No separate "comment mode" to toggle.
-- One floating pill: note count · `‹ n/N ›` stepper (cycles through every note)
-  · send. **Tap the count** for a drawer listing every note (jump to any of
-  them, across tabs); set your reviewer name and light/dark/auto theme there too.
-- Anchored cards open in place under the element, with edit/delete on comments.
-- Composer docks above the keyboard; quick-reply chips save a note in one tap.
-
 Everything persists in `localStorage` per page path, so a reload never loses
 notes.
+
+## Docs menu (optional)
+
+A host page can set `window.PROOFING_DOCS` (before the script loads) to a
+list of related documents. This adds a **☰** button (fixed top-left, both
+platforms) that opens a slide-in drawer linking between them — handy when a
+reviewer needs to hop between several pages in one sitting:
+
+```html
+<script>
+  window.PROOFING_DOCS = [
+    { title: "Weekly Team Brief", url: "/brief", source: "Engineering" },
+    { title: "Roadmap Q3", url: "/roadmap", source: "Product" },
+    { title: "Design review", url: "/design-review", source: "Design" },
+  ];
+</script>
+<script src="proofing-room.js"></script>
+```
+
+Each entry is `{ title, url, source }` (`source` is optional, shown as a small
+caption). Links preserve the current `?proof` / `?proof=mobile` mode, so
+hopping between docs stays in review mode. No `window.PROOFING_DOCS` (or an
+empty list) → no button at all — this is entirely opt-in. As a safety
+measure, only `http`/`https`-style URLs render; a `javascript:` / `vbscript:`
+/ `data:` URL is silently dropped from the list rather than rendered.
 
 ## Declaring questions, checkboxes, and approvals
 
@@ -157,7 +187,8 @@ tab from the notes drawer/list. **A page with no `data-proof-tab` elements at
 all behaves exactly like a single-view page** — tabs are entirely opt-in.
 
 `example.html` in this folder demonstrates every one of the above: two tabs,
-a `data-proof-section` approve, and one each of `yesno` / `scale` / `done`.
+a `data-proof-section` approve, one each of `yesno` / `scale` / `done`, and a
+`window.PROOFING_DOCS` list so the ☰ docs menu shows up too.
 
 ## Optional: wire a return channel
 
@@ -174,20 +205,19 @@ the script loads) to **your own** Discord channel webhook URL:
 <body data-proofing-webhook="https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN">
 ```
 
-With a webhook configured, a **Send** button appears (desktop panel, mobile
-pill) that POSTs a short summary plus the full anchored review as a `.json`
-file attachment straight to that channel. No webhook set → the button simply
+With a webhook configured, a **Send** button appears in the floating pill
+that POSTs a short summary plus the full anchored review as a `.json` file
+attachment straight to that channel. No webhook set → the button simply
 doesn't render; Extract JSON keeps working regardless.
 
 **That URL is a secret** — anyone who has it can post into your channel.
 Keep the page private, and rotate the webhook if it ever leaks.
 
-### (b) Host it on here.now (or any static host)
+### (b) Host it anywhere static
 
 The page is a static file with one script tag — it works wherever you can
-serve HTML. Publishing it via `here.now` (or your own host) is enough to hand
-a reviewer a link with `?proof` on it; no server-side piece is required either
-way.
+serve HTML. Publishing it to any static host is enough to hand a reviewer a
+link with `?proof` on it; no server-side piece is required either way.
 
 ## The JSON contract (what Extract / Send produces)
 
@@ -220,6 +250,9 @@ way.
 }
 ```
 
+The JSON schema is `version: "6"` and unchanged from prior releases — only
+the review UI moved to v7.0, not the export format.
+
 Each item is anchored by CSS `selector` + visible `anchorText` + nearest
 `section` heading (+ `askId` for declared asks), so an agent can locate the
 target even if the DOM has shifted slightly since the review.
@@ -247,7 +280,7 @@ When you're given a `proofing-*.json`:
 ## Files in this skill
 
 - `proofing-room.js` — the drop-in wrapper (the artifact you copy in).
-- `example.html` — a demo page with two tabs and one of every declared ask;
-  open it with `?proof` (or `?proof=mobile`) to see the tool, or use it to
-  verify a change.
+- `example.html` — a demo page with two tabs, one of every declared ask, and
+  a `window.PROOFING_DOCS` list; open it with `?proof` (or `?proof=mobile`)
+  to see the tool, or use it to verify a change.
 - `README.md` — human-facing setup notes.
