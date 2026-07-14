@@ -246,6 +246,23 @@ def cmd_write(args):
 
     print(os.path.join(handoffs_dir(mem_dir), fname))
 
+    # Opt-in intra-repo mirror: if <cwd>/docs/memory/ exists, the repo wants its
+    # handoff trail git-tracked. Copy the new handoff there and refresh only the
+    # pointer block in the repo's own MEMORY.md — the canonical index belongs to
+    # ~/.claude and must never overwrite the repo's. Mirror is never pruned
+    # (git history is the point).
+    if cwd_val:
+        mirror = os.path.join(cwd_val, "docs", "memory")
+        if os.path.isdir(mirror):
+            try:
+                os.makedirs(os.path.join(mirror, "handoffs"), exist_ok=True)
+                shutil.copy2(os.path.join(handoffs_dir(mem_dir), fname),
+                             os.path.join(mirror, "handoffs", fname))
+                update_memory_block(mirror, pointer)
+                print(os.path.join(mirror, "handoffs", fname))
+            except Exception as e:
+                log("write: repo mirror failed: %r" % e)
+
 
 # --------------------------------------------------------------- recall -----
 def cmd_recall(args):

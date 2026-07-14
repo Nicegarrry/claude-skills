@@ -80,6 +80,13 @@ this folder, the handoff is injected automatically.
 
 ## Notes
 
+- **Intra-repo mirror (opt-in).** If the project has a `docs/memory/` directory,
+  every write (wrap or auto-fallback) also copies the handoff into
+  `docs/memory/handoffs/` and refreshes only the handoff pointer block in
+  `docs/memory/MEMORY.md` (the rest of that file is the repo's own — it is never
+  overwritten with the canonical `~/.claude` index), so the trail is git-tracked.
+  Create that directory to opt a repo in; commit the mirror along with normal
+  doc changes. The mirror is never pruned — git history is the point.
 - **This is project-scoped.** Each folder has its own handoffs; clearing windows in
   different folders never interfere. Multiple windows in the *same* folder are safe
   too (locked writes, unique filenames) — recall shows the newest + lists the others
