@@ -1,6 +1,8 @@
 # Helm templates
 
-Copy, fill, trim. Every brief ends with a reply-shape cap — uncapped agents return essays.
+Copy, fill, trim. Every brief ends with a reply-shape cap — uncapped agents return essays. Doctrine:
+`../SKILL.md`. Who to dispatch: `routing.md`. How the brief reaches the worker and what a repo
+contract must already carry: `fleet-mechanics.md`.
 
 ## Builder dispatch brief
 
@@ -9,7 +11,9 @@ Builder for ticket #<N> "<title>" in <repo path> (gh authenticated). Claim #<N>.
 Read: CLAUDE.md; ticket body (`gh issue view N`); <the 2–4 docs THIS ticket needs, by name,
 with the binding rules called out — e.g. "docs/doc-model.md CA-1..CA-7 (BINDING)">; the run
 logs of the tickets whose seams you inherit.
-Pull main; worktree `git worktree add ../<repo>-worktrees/<branch> -b <branch>`; work only there.
+Pull main; worktree `git worktree add <the path this repo's contract fixes> -b <branch> origin/main`;
+work only there. <CURRENT MAIN: what merged since this ticket was written — moved files, renamed
+seams, the baseline test count at dispatch time.>
 
 <PARALLEL-SAFETY: which sibling agents are running, which files/seams each owns, registries
 are append-only, declare any shared-file touch in the PR body.>
@@ -56,7 +60,10 @@ impossible on same-account PRs — the verdict line is authoritative.) Do NOT ed
 NOT merge. Final reply max 12 lines: verdict + one line per finding.
 ```
 
-## Fix-pass message (to the SAME builder, via SendMessage)
+## Fix-pass message (to the SAME builder ROLE)
+
+Resumable worker: send this to the agent that built it. Stateless worker: a fresh invocation carrying
+the PR number and the review body says the same thing (`fleet-mechanics.md`).
 
 ```
 Staff review on PR #<P>: REQUEST CHANGES — read the full review on the PR. Fix all BLOCKING:
@@ -67,7 +74,7 @@ Re-verify everything, push same branch, disposition reply max <8–10> lines
 (finding → fixed-how, or pushed back with source-verified evidence). Do not merge.
 ```
 
-## Verification-pass message (to the SAME reviewer)
+## Verification-pass message (to the SAME reviewer ROLE — resumed, or re-invoked with the thread)
 
 ```
 <Builder> pushed fixes to PR #<P> (head <sha>, disposition on the PR): <one line per fix>.
@@ -76,6 +83,8 @@ probes <name the key ones>. Post "Re-review — verdict: ..." on the PR. Reply m
 ```
 
 ## Repo CLAUDE.md contract skeleton
+
+`AGENTS.md` is a committed git symlink to this file, so one contract serves both fleets.
 
 ```
 # <repo> — working contract for every agent in this repo
@@ -89,6 +98,9 @@ probes <name the key ones>. Post "Re-review — verdict: ..." on the PR. Reply m
 ## Testing                 <suites; no sleeps — poll predicates; CI budget; "done = exercised
                             in the running app">
 ## Quality bar             <the product feel sentence + icon/style rules>
+## Worker conventions      <instantiated from references/fleet-mechanics.md, with THIS repo's paths>
+## Reviewer conventions    <instantiated from references/fleet-mechanics.md, with THIS repo's gate>
+## Mixed fleet             <one line: routing lives in the helm skill's references/routing.md>
 ```
 
 ## Map decision line (append per merged ticket, before "## Not yet specified")
