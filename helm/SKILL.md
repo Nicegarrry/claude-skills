@@ -52,8 +52,8 @@ Per-factory docs carry ONLY their deltas and point here.
    deltas on the docs + new tickets + a landmines doc.
 2. **`docs/landmines.md`** — known failure modes, numbered, binding on all builders. Reviews cite them by
    number. Grow it as reviews find new classes.
-3. **Research tickets pin reality before scaffolding.** Versions verified against the live registry (`npm
-   view`), integration patterns *executed* not quoted, licensing checked — the antidote to builders' stale
+3. **Research tickets pin reality before scaffolding.** Versions verified live against the registry
+   (`npm view`), integration patterns *executed* not quoted, licensing checked — the antidote to stale
    training data: "copy imports from the research doc, never from memory."
 4. **Chart via /wayfinder** on the tracker: map issue + child tickets, native sub-issues + blocked-by
    dependencies, `wayfinder:<type>` labels. Note the execution override in the map's Notes when the user
@@ -96,8 +96,8 @@ forward findings from prior PRs by name ("carry finding S4 from PR #26").
 **Merging & seams:**
 - **Serial merge train on a shared generated file.** On any generated barrel (`convex/_generated/*`), merge
   ONE, then signal the next branch to merge main and regenerate it on a local backend; parallel rebase signals
-  guarantee each merge invalidates the rest (#44, #51, #57). Stacked branches rebase `--onto origin/main
-  <old-base-sha>`.
+  guarantee each merge invalidates the rest (#44, #51, #57). Stacked branches rebase with
+  `git rebase --onto origin/main <old-base-sha>`.
 - **Merge protocol:** reviewer names the SHA → check `head == SHA` and `mergeable == MERGEABLE` → merge → read
   PR state → only then clean up / record / tick the map. Never chain the cleanup (#44). Assert your checkout
   is on `main` first. Verify the gate ran on the **true merge base** — if the branch predates main's tip, run

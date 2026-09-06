@@ -53,7 +53,8 @@ Models verified live on this machine via `codex exec` (2026-09-05): `gpt-5.6-sol
 The weekly Codex allowance is ONE pool across models. The 2026-09-05 marlo run used only astra + sol
 at 5–8 concurrent sessions, mostly `xhigh`, and drained the week in ~8 hours (limit 21:40 AEST,
 reset Sep 12 18:34); the volume then fell to the Claude fleet, which hit the Claude 5-hour limit at
-03:41 the same night. Two fleet deaths in one night, both avoidable.
+03:41 the same night. Two fleet deaths in one night, both avoidable. Claude alone is no cheaper: one
+day of Opus builders and reviewers on a single program burned 18% of a weekly top-plan window.
 
 1. **terra is the default** for anything `low` or mechanical; sol is reserved for `medium`; astra for
    `high` builds and at most ONE read-only gate or A/B per wave close.
@@ -62,8 +63,9 @@ reset Sep 12 18:34); the volume then fell to the Claude fleet, which hit the Cla
    start higher "to be safe".
 4. **Plan the week:** target ≲15% of the pool per day, ≤4 concurrent Codex sessions, ≤2 concurrent
    gates. The machine's slot lock is the real ceiling (load >900 with six simulators on 09-05).
-5. **A usage-limit message is a fleet death.** Parse the reset time, record it in the wiki/handoff,
-   chain wakeups — and do NOT replay the same burst on the Claude fleet.
+5. **A usage-limit message is a fleet death.** Parse the reset time, record the exact limit message
+   in the ticket's run log and the reset time in the wiki/handoff, chain wakeups — and do NOT replay
+   the same burst on the Claude fleet. The worktree persists; resume there after the reset.
 
 ## Cross-provider review rules
 

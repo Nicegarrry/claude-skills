@@ -10,7 +10,7 @@ replaced without losing the thread:
 
 | Hop | Where it lives |
 |---|---|
-| Brief | an issue comment titled `Dispatch brief (<adapter>)` |
+| Brief | an issue comment titled `Dispatch brief (<adapter>)` — the literal `Dispatch brief (codex)` for Codex workers, which `codex-ticket.sh` matches with `startswith` |
 | Report | the PR itself (body carries the evidence tails) |
 | Verdict | `gh pr review <PR> --comment`, titled `Staff review — verdict: …` |
 | Fix round | the review comment + the PR number, handed back to the builder role |
@@ -87,9 +87,9 @@ land here first.
    feature deleted is itself a BLOCKING finding.
 4. **Probe adversarially** — the scenarios worth constructing for THIS ticket, not a generic pass.
 5. **Cite the spec and the repo contract by section/rule number**, never from memory.
-6. **File the verdict via `gh pr review <PR> --comment`**, titled `Staff review — verdict: APPROVE |
-   REQUEST CHANGES`, findings graded BLOCKING / SHOULD / NIT; a re-review is titled `Re-review —
-   verdict: …` and names the SHA. Post the verdict, THEN reply.
+6. **File the verdict via `gh pr review <PR> --comment`.** Title it
+   `Staff review — verdict: <APPROVE|REQUEST CHANGES>`, findings graded BLOCKING / SHOULD / NIT.
+   A re-review is titled `Re-review — verdict: …` and names the SHA. Post the verdict, THEN reply.
 7. **Do not edit files, do not merge.** Clean up the review worktree when done.
 
 ## Adapter spawn
