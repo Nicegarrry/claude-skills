@@ -15,10 +15,98 @@ live-deployed, review-audited multiplayer product (the "brief" build, 2026-08-20
 - **Orchestrator (you, top-tier model):** strategy docs, self-grills, ticket decomposition,
   dispatch briefs, merge decisions, map upkeep, strategic gates. Forks of yourself = strategic
   reviewers (they inherit full context).
-- **Builders (Opus-tier):** one ticket each, in a worktree, PR-only. Never on main.
+- **Builders (Opus-tier — superseded by the "Codex use" routing table below when Codex Pro is
+  active):** one ticket each, in a worktree, PR-only. Never on main.
 - **Staff reviewers (Opus-tier):** one PR each, adversarial, run-the-code reviews.
 - **Mechanical work (Sonnet-tier):** issue creation from a worksheet, label setup, bulk file ops.
 - Quality > speed. A second review round is cheaper than a defect under ten later tickets.
+- **Complexity labels drive dispatch (Nick, 2026-09-05).** Every ticket carries
+  `complexity:<high|medium|low>` (set by /wayfinder at charting, re-tiered by the helm if
+  needed, with a comment saying why). `high` → coordinator-tier judgement: the orchestrator
+  works it directly, runs it as HITL with the user, or dispatches a top builder with a
+  tight brief AND a coordinator-level review; `medium` → Opus-tier builder, one ticket, staff
+  review; `low` → Sonnet-tier worker (mechanical, well-specified, research digests, config).
+  Reviews are always one tier at or above the builder. The label is provider-neutral so a
+  mixed fleet (Claude tiers, Codex, others) routes on it with one coordinator. Never dispatch
+  without checking the label; never let a subagent inherit the coordinator's model.
+
+## Mixed fleet — Codex workers via herdr (Nick, 2026-09-05)
+
+The coordinator stays Claude; the workers are provider-mixed and routed by the complexity
+label. Mechanics that hold regardless of which routing table is active:
+- **The tracker is the message bus, not agent messaging.** Brief = issue comment titled
+  `Dispatch brief (codex)`; report = the PR; verdict = `gh pr review --comment`; fix round =
+  a fresh `codex exec` given the PR number and the review comment; verification = a fresh
+  `codex exec` in the reviewer role. Workers are stateless by design — the run log, the PR
+  body and the review thread carry all context (that is how Opus fix rounds effectively
+  worked too). The heartbeat polls `gh pr list` / review comments instead of waiting for
+  notifications.
+- **Spawn from the helm session inside herdr** (`HERDR_ENV=1`):
+  `herdr agent start <name> --cwd <worktree> --no-focus -- codex exec <flags> "<prompt>"`,
+  wrapped by the repo's `scripts/codex-ticket.sh <N> build|review|fix|verify [PR]` (creates
+  the worktree, pulls the brief from the tracker, runs codex). Watch with
+  `herdr agent wait <name> --status idle` and `herdr agent read <name>`.
+- **Contract discovery:** every repo carries `AGENTS.md` as a symlink to `CLAUDE.md`
+  (Codex auto-loads AGENTS.md; Claude loads CLAUDE.md) so both fleets read ONE contract, and
+  CLAUDE.md carries explicit "Worker conventions" and "Reviewer conventions" checklists a
+  fresh session can follow blind (claim → worktree → gate with baseline count → run log →
+  PR evidence → never merge; review = detached review worktree, run it, mutation-test, name
+  the head SHA, post the verdict).
+- Per-exec model/effort via `-c model=… -c model_reasoning_effort=…`; never edit the
+  user's Codex config. `codex exec` in a non-TTY MUST get `< /dev/null` (or a wrapper that
+  closes stdin) or it blocks forever on "Reading additional input from stdin". Prove the
+  sandbox/network flags once per machine (gh push + npm need network) and pin them in the
+  script. Read-only runs (reviews, thought-partner) use `--sandbox read-only` and
+  `-o <file>` for the answer.
+- Prefer no extra orchestration layer (omniagent, pi, etc.): the tracker + worktrees +
+  PR-only merges already are the protocol; another layer adds a failure surface only.
+
+### "Codex use" routing (Nick, 2026-09-05 — ChatGPT Pro, Claude 20x → 5x)
+
+Adopted when Nick moved Codex to Pro. Goal: Codex carries the volume, Claude carries
+judgement, and two providers reviewing each other gives real adversarial pressure. Models
+verified live on this machine via `codex exec` (2026-09-05): `gpt-5.6-sol` (workhorse),
+`gpt-6-astra` (frontier; efforts up to `max`/`ultra`), plus `gpt-5.6-terra`/`-luna`.
+
+| Role | Default | Notes |
+|---|---|---|
+| Coordinator | Fable (Claude) | charts, dispatches, merges, rules; never a worker |
+| Builder `complexity:low` | Codex `gpt-5.6-terra`, effort high | one ticket, worktree, PR-only; mechanical work = terra, effort medium |
+| Builder `complexity:medium` | Codex `gpt-5.6-sol`, effort high | one ticket, worktree, PR-only |
+| Builder `complexity:high` | Codex `gpt-6-astra`, effort xhigh | **Fable reviews** (coordinator or a fork) — astra never reviews its own build |
+| Staff review `low` | Codex `gpt-5.6-terra`, effort xhigh | fresh session, detached review worktree |
+| Staff review `medium` | Codex `gpt-5.6-sol`, effort xhigh | fresh session, detached review worktree |
+| Fix round | same tier as the build | a `high` fix returns to astra only for a design-level blocker; otherwise sol |
+| Selective Opus adversarial review | Opus (Claude) | on `medium` tickets: any privacy/security/data-loss seam, a sol APPROVE with zero blockers on a large diff, or coordinator judgement — named in the dispatch |
+| Verify pass | same provider/model as the reviewer | re-runs its own probes |
+| Wave-close / milestone gate | `gpt-6-astra` xhigh, read-only, written brief → written report | coordinator TESTS the conclusions (spot-check claims against code/tracker) before folding any in; record the fold-in and the rejections |
+| Thought partner / A/B | `gpt-6-astra` xhigh, read-only | when turning a Nick ask into spec/plan/tickets, charting a map, or on a hard design problem with Nick unavailable. **Blind A/B:** coordinator commits its own position in writing first, then reads astra's, then records deltas + the ruling |
+| Mechanical | Codex `gpt-5.6-terra`, effort medium | issue creation, bulk edits, config |
+
+**Tiered usage budget (Nick, 2026-09-06).** The weekly Codex allowance is ONE pool
+across models; the 2026-09-05 marlo run used only astra + sol at 5–8 concurrent sessions
+and drained the week in ~8 hours (hit 21:40 AEST, reset the following Friday), which then
+pushed the volume onto the Claude fleet and hit the Claude 5-hour limit too. Rules:
+(a) terra is the default for anything `low` or mechanical, sol is reserved for `medium`,
+astra for `high` builds and at most one read-only gate/A-B per wave close; (b) `high`
+effort for builds, `xhigh` only for reviews, `max`/`ultra` never without the user;
+(c) re-tier a ticket UP only after the lower tier has failed it (comment why) — never
+start higher "to be safe"; (d) plan the week: target ≲15% of the pool per day, ≤4
+concurrent Codex sessions, ≤2 gates (machine slot lock); (e) a usage-limit message is a
+fleet death — parse the reset time, record it in the wiki/handoff, chain wakeups, and
+do NOT replay the same burst on the Claude fleet.
+
+Rules: (1) a PR is never built and reviewed by the same *session* — sol may review a sol
+build in a fresh session (Nick's ask), and cross-model review is mandatory on `high`
+(astra build → Fable review) and selective on `medium` (Opus); (2) Fable and astra are
+the only tiers that review `high`; (3) Opus is a selective second reviewer, not the
+default — say why in the dispatch; (4) A/B outcomes go in `_wiki/decisions/` (map-level)
+or the ticket (ticket-level) so the thinking survives; (5) fan-out cap 4–5 concurrent
+Codex sessions (collision surface, not tokens); stagger during heavy phases and treat a
+usage-limit message like any other fleet death (parse reset time, hourly wakeup chain);
+(6) `scripts/codex-ticket.sh` picks the model from role + label — `CODEX_MODEL`/
+`CODEX_EFFORT` env override per dispatch; `scripts/codex-ask.sh <brief> [model] [effort]`
+runs a read-only thought-partner/gate pass over a detached `origin/main` worktree.
 
 ## Phase 0 — Substrate (do this before any feature work)
 

@@ -43,6 +43,10 @@ Dimensions (priority order):
 2. <live probing — run the app/server, two contexts, the specific adversarial scenarios
    worth constructing for THIS ticket>
 3. <the harness/tests — are they real, no sleeps, would they catch the regression class>
+3b. For every assertion in a refusal/error message and every test over live output, ask
+    "what would make this false, and does the code guarantee it?" — a claim wider than
+    its instrument (Admiral L24: pgrep -f, a string loopback check, a hash race that
+    still spawned the server) is a finding even when the behaviour looks right.
 4. <UX by eye if user-facing — screenshot and LOOK>
 5. <scope hygiene — declared seams only, deps pinned, registry discipline>
 
