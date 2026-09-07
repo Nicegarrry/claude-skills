@@ -58,9 +58,11 @@ frontier-priced and are not routed through Go except as a single wave-close seco
 https://opencode.ai/docs/go/. Model ids are `opencode-go/<id>`, to be verified against
 `opencode models`.
 
-Status 2026-09-07: Go is one subscription away (Nick is subscribing); `opencode` installs via
-`brew install anomalyco/tap/opencode`. Until the helm CLI's `opencode` adapter lands (M1), T0/T1
-work stays on terra.
+Status 2026-09-07: Go is subscribed and authenticated on this machine (`opencode` 1.18.29 via
+`brew install anomalyco/tap/opencode`; credential in `~/.local/share/opencode/auth.json`, provider
+id `opencode-go`; `opencode models opencode-go` lists all 27 ids above). Until the helm CLI's
+`opencode` adapter lands (M1), T0/T1 work stays on terra; ad-hoc use is
+`opencode run --model opencode-go/<id> --format json "<prompt>"`.
 
 ## Routing table (2026-09-07)
 
