@@ -70,6 +70,7 @@ D-ticket and build tickets at charter time. The old pattern of one massive issue
 |---|---|---|
 | T0 bulk | **Qwen3.8 Flash** (qwen; default, Nick 2026-09-07: better on review evidence at $0.013 a ticket against MiMo's $0.008, a difference not worth optimising) and **MiMo-V2.5** (xiaomi; second model; the cross-family reviewer of a Qwen build): the only two Go models ENABLED (keep it simple, known publishers only). Both 3/3 on the planted-defect review probe, Qwen with run-the-code evidence. Muse Spark 1.3 Contributor (meta; cheapest and 3/3) is declared but **gated**: synthetic work only unless Nick names a repo | Go: $12 / 5 h, $30 / week, $60 / month, ONE pool for every Go model |
 | T1 mid | **None enabled for now.** Noted from testing, declared and disabled in `[models]`, re-checked on the cadence below: Omen Alpha (best review evidence, but undisclosed publisher: **avoid**, Nick 2026-09-07), GPT 5.6 Luna (openai; Claude builds only), GLM-5.3-Flash (untested); reserve LongCat-2.0, Hy3, Qwen3.7 Plus, Hy4, MiMo-V2.5-Pro, Kimi K2.6, Qwen3.6 Plus; not routed Kimi K2.7 Code (10.9× MiMo, same result), MiniMax M3 (5×, under-severed), MiniMax M2.7 (missed a planted defect), GLM-5.1/5.2 (dominated), Grok 4.6 | same Go pool |
+| T1 on the Pro pool | **Codex `gpt-5.6-luna`** (openai): 5 / 0.5 / 30 credits per 1M tokens against terra's 50 / 5 / 300 (rate card, verified 2026-09-07); measured 0.60 credits per ticket against terra's 7.05 on the vendored build task. Builds `low`; reviews Claude, Qwen and MiMo builds; never a Codex build. Takes the `low` build default after A/B 3 against terra | ChatGPT Pro weekly (rolling 7 days) |
 | T2 workhorse | Codex `gpt-5.6-terra` (openai); Claude Sonnet (anthropic) | ChatGPT Pro weekly; Claude 5x |
 | T3 strong | Codex `gpt-5.6-sol` (openai); Claude Opus (anthropic) | same |
 | T4 frontier | Codex `gpt-6-astra` (openai); Claude Fable, coordinator only (anthropic) | same |
@@ -105,7 +106,7 @@ SHA, gate, mutation table, screenshots where there is a screen.
 | Role | Default | Notes |
 |---|---|---|
 | Coordinator | Fable (Claude) | charts, dispatches, merges, rules; never a worker |
-| Builder `low`, script oracle | T2 `gpt-5.6-terra`, effort high; T0 `qwen3.8-flash` in pilot (A/B 1 against terra) | one ticket, worktree, PR-only; `Oracle:` line mandatory |
+| Builder `low`, script oracle | T2 `gpt-5.6-terra`, effort high; T1 `gpt-5.6-luna` via Codex in pilot (A/B 3 against terra, medium effort); T0 `qwen3.8-flash` in pilot (A/B 1 against terra) | one ticket, worktree, PR-only; `Oracle:` line mandatory; a Luna build gets a cross review from qwen, mimo or Sonnet, never terra |
 | Builder `low`, research digest | T2 terra; T0 `qwen3.8-flash` in pilot (`mimo-v2.5` where 1M context matters) | citation check is mandatory in review |
 | Builder `medium` | T3 `gpt-5.6-sol`, effort high | one ticket, worktree, PR-only |
 | Builder `high` | T4 `gpt-6-astra`, effort xhigh | **Fable reviews**; astra never reviews its own build |
@@ -145,14 +146,21 @@ SHA, gate, mutation table, screenshots where there is a screen.
 
 ## Budget rules
 
-Pools: Claude 5x (5-hour and weekly windows); ChatGPT Pro (ONE weekly pool across terra, sol and
-astra); OpenCode Go ($12 / 5 h, $30 / week, $60 / month, one pool for every Go model). The
-2026-09-05 marlo run drained the Codex week in ~8 hours at 5–8 concurrent xhigh sessions, then the
-Claude 5-hour limit took every subagent at 03:41; one day of Opus builders alone burned 18% of a
-weekly top-plan window.
+Pools: Claude 5x (5-hour and weekly windows); ChatGPT Pro (ONE pool across luna, terra, sol and
+astra: a **rolling seven-day window**, not a calendar reset, and as of 2026-09-07 **no five-hour
+cap active on Pro**, which OpenAI may restore); OpenCode Go ($12 / 5 h, $30 / week, $60 / month,
+one pool for every Go model). Codex meters by a published credit rate card (credits per 1M tokens
+in / cached / out: astra 250 / 25 / 1,250; sol 100 / 10 / 500; terra 50 / 5 / 300; luna 5 / 0.5 /
+30) and every `codex exec --json` stream reports the live `rate_limits` percentages, so Codex
+budget is read, never estimated. The 2026-09-05 marlo run drained the Codex week in ~8 hours at
+5–8 concurrent xhigh sessions, then the Claude 5-hour limit took every subagent at 03:41; one day
+of Opus builders alone burned 18% of a weekly top-plan window.
 
-1. terra is the default for `low` and mechanical until Go carries them; sol is reserved for
-   `medium`; astra for `high` builds and at most ONE read-only gate or A/B per wave close.
+1. On the Codex side, luna is the `low` build default once A/B 3 passes (ten times cheaper than
+   terra in pool credits); terra stays the `low` reviewer (PR #61 evidence) and the fallback
+   builder; sol is reserved for `medium`; astra for `high` builds and at most ONE read-only gate
+   or A/B per wave close. Go's qwen/mimo carry mechanical work and the cross-family reviews of
+   Codex and Luna builds.
 2. `high` effort for builds, `xhigh` only for reviews. `max` / `ultra` never without the user.
 3. Re-tier UP only after the lower tier has failed the ticket, with a comment saying why.
 4. Plan the week: ≲15% of each pool per day, ≤4 concurrent worker sessions, ≤2 concurrent gates.
