@@ -41,12 +41,34 @@ tight5, coffeeclub, VG, admiral; live-verified provider facts). This table is th
    in one night on 2026-09-05/06.
 6. **A new tier enters only through an A/B on the same ticket** against a T2 control, same
    cross-family reviewer, coordinator blind until disposition. One thrash is a no.
+7. **Ticket size scales down with tier (Nick, 2026-09-07).** The cheap-tier successes in the
+   corpus were all one file or one script with a machine-decidable oracle and no cross-seam
+   reasoning (marlo #68, #80, #98, #77: zero rounds). The thrashes were strategy-sized tickets
+   sent to one strong model to "solve and execute" (marlo #33: a million tokens, six rounds).
+   The coordinator decomposes before dispatch; the CLI refuses what it can detect.
+
+## Ticket sizing by tier
+
+| Tier | Shape of one ticket | Oracle | Turn budget |
+|---|---|---|---|
+| T0 (mechanical, `low` with oracle) | one file or one script, one seam, no design choice left open | a named command that decides acceptance, mandatory | ~40–60 |
+| T1 | as T0, plus a research digest or a review of a T0/T2 build | mandatory for builds; citation check for digests | ~60 |
+| T2 (`low` on terra/Sonnet) | one bounded slice, one seam, spec-stated acceptance | mandatory | ~60 |
+| T3 (`medium`) | one vertical slice across at most two seams; the brief names both | tests plus the gate | ~300 |
+| T4 (`high`) | strategy plus execution allowed as one unit; design docs, keystones, seams | the gate plus a coordinator-level review | unbounded |
+
+Rules: a `low` or mechanical brief without an `Oracle:` line is refused by `helm dispatch`
+("split the ticket or name the oracle"); an attempt that passes its tier's turn budget is
+flagged `over_budget` in the ledger and raised to the inbox, never auto-killed in v1; a ticket
+that needs a strategy decided before it can be built is re-tiered `high` or split into a
+D-ticket and build tickets at charter time. The old pattern of one massive issue to astra to
+"work out the approach and then do it" stays legal only at T4.
 
 ## The ladder
 
 | Tier | Models (family) | Pool |
 |---|---|---|
-| T0 bulk | **MiMo-V2.5** (xiaomi; default; 30,100 req/5 h) and **Qwen3.8 Flash** (qwen; 5,400): the only two Go models ENABLED (Nick, 2026-09-07: keep it simple, known publishers only). Both 3/3 on the planted-defect review probe, Qwen with run-the-code evidence; Qwen doubles as the cheap cross-family reviewer. Muse Spark 1.3 Contributor (meta; 45,300; cheapest and 3/3) is declared but **gated**: synthetic work only unless Nick names a repo | Go: $12 / 5 h, $30 / week, $60 / month, ONE pool for every Go model |
+| T0 bulk | **Qwen3.8 Flash** (qwen; default, Nick 2026-09-07: better on review evidence at $0.013 a ticket against MiMo's $0.008, a difference not worth optimising) and **MiMo-V2.5** (xiaomi; second model; the cross-family reviewer of a Qwen build): the only two Go models ENABLED (keep it simple, known publishers only). Both 3/3 on the planted-defect review probe, Qwen with run-the-code evidence. Muse Spark 1.3 Contributor (meta; cheapest and 3/3) is declared but **gated**: synthetic work only unless Nick names a repo | Go: $12 / 5 h, $30 / week, $60 / month, ONE pool for every Go model |
 | T1 mid | **None enabled for now.** Noted from testing, declared and disabled in `[models]`, re-checked on the cadence below: Omen Alpha (best review evidence, but undisclosed publisher: **avoid**, Nick 2026-09-07), GPT 5.6 Luna (openai; Claude builds only), GLM-5.3-Flash (untested); reserve LongCat-2.0, Hy3, Qwen3.7 Plus, Hy4, MiMo-V2.5-Pro, Kimi K2.6, Qwen3.6 Plus; not routed Kimi K2.7 Code (10.9× MiMo, same result), MiniMax M3 (5×, under-severed), MiniMax M2.7 (missed a planted defect), GLM-5.1/5.2 (dominated), Grok 4.6 | same Go pool |
 | T2 workhorse | Codex `gpt-5.6-terra` (openai); Claude Sonnet (anthropic) | ChatGPT Pro weekly; Claude 5x |
 | T3 strong | Codex `gpt-5.6-sol` (openai); Claude Opus (anthropic) | same |
@@ -83,11 +105,11 @@ SHA, gate, mutation table, screenshots where there is a screen.
 | Role | Default | Notes |
 |---|---|---|
 | Coordinator | Fable (Claude) | charts, dispatches, merges, rules; never a worker |
-| Builder `low`, script oracle | T2 `gpt-5.6-terra`, effort high; T0 `qwen3.8-flash` in pilot (A/B 1 against terra) | one ticket, worktree, PR-only |
-| Builder `low`, research digest | T2 terra; T0 `mimo-v2.5` (1M context) in pilot | citation check is mandatory in review |
+| Builder `low`, script oracle | T2 `gpt-5.6-terra`, effort high; T0 `qwen3.8-flash` in pilot (A/B 1 against terra) | one ticket, worktree, PR-only; `Oracle:` line mandatory |
+| Builder `low`, research digest | T2 terra; T0 `qwen3.8-flash` in pilot (`mimo-v2.5` where 1M context matters) | citation check is mandatory in review |
 | Builder `medium` | T3 `gpt-5.6-sol`, effort high | one ticket, worktree, PR-only |
 | Builder `high` | T4 `gpt-6-astra`, effort xhigh | **Fable reviews**; astra never reviews its own build |
-| Mechanical (tracker ops, bulk edits, config) | T0 `mimo-v2.5` in pilot; terra effort medium until then | script oracle, no review |
+| Mechanical (tracker ops, bulk edits, config) | T0 `qwen3.8-flash` in pilot (`mimo-v2.5` second); terra effort medium until then | script oracle, no review |
 | **Floor: UI by eye** (any label) | T3 build with the simulator loop | T3 cross review, screenshots looked at; no cheap-tier success exists |
 | **Floor: privacy / security / data-loss seam** (any label) | T4 build | T4 cross review; Opus second read when the build was Codex; the supervisor never dispatches these |
 | Staff review `low` | T2, fresh session, runnable; cross preferred (Sonnet for a Codex build, terra for a Claude build); cheap cross candidate `qwen3.8-flash` (A/B 2 against a terra review); `mimo-v2.5` may review a qwen build (cross) | same-family fresh session allowed; a Go reviewer files findings only, never a verdict line |
