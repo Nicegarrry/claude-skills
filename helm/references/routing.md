@@ -195,8 +195,11 @@ when, and on whose ruling.
 ## Rejected and dropped (2026-09-07)
 
 - Gemini by API key: rejected. Antigravity CLI on a Google AI subscription is a conditional second
-  pilot only if Go proves insufficient, and only after its headless bugs close (stdout dropped
-  under a non-TTY pipe; no session id in print mode).
+  pilot only if Go proves insufficient. Headless state 2026-09-07: stdout-under-pipe bug closed
+  2026-07-12; print mode still emits no conversation id (open), so no resume by id. Google
+  publishes no numeric Pro quota; community reports range from a handful of prompts per window to
+  normal use, against Go's measured 938–1,480 tickets per $12 window
+  (`~/code/other/helm-cli/docs/research/antigravity-pro-vs-go-2026-09-07.md`).
 - OpenRouter free: dropped. 50 requests a day account-wide (1,000 after a $10 lifetime credit),
   silently rotating roster, training-on-prompts on its best model. If ever wanted it is a provider
   entry under the same `opencode` adapter, not a new lane.
