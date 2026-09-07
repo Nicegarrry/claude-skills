@@ -52,9 +52,10 @@ tight5, coffeeclub, VG, admiral; live-verified provider facts). This table is th
 | T3 strong | Codex `gpt-5.6-sol` (openai); Claude Opus (anthropic) | same |
 | T4 frontier | Codex `gpt-6-astra` (openai); Claude Fable, coordinator only (anthropic) | same |
 
-**DeepSeek V4 Flash and Pro are gated** behind an explicit China-hosted opt-in at the Go console
-(refused from this machine 2026-09-07); `allow_china_hosted = false` by default, pending Nick's
-ruling. The T0 default is therefore MiMo-V2.5. Observed cost per trivial turn (2026-09-07, each
+**China-hosted models are excluded (Nick, 2026-09-07).** DeepSeek V4 Flash, Pro and Flash Vision
+on Go sit behind a China-hosted opt-in at the Go console and are OUT; `allow_china_hosted =
+false` in every repo. The T0 default is therefore MiMo-V2.5, pending the Go model allocation
+report (`~/code/other/helm-cli/docs/research/go-model-allocation-2026-09-07.md`). Observed cost per trivial turn (2026-09-07, each
 turn carries ~15k tokens of OpenCode's system prompt): MiniMax M2.7 $0.00004, GLM-5.3-Flash
 $0.0012, Muse Spark 1.3 Contributor $0.0016, MiMo-V2.5 $0.0020, Hy3 $0.0022, Omen Alpha $0.0032,
 Qwen3.8 Flash $0.0033, GPT 5.6 Luna $0.0036, MiniMax M3 $0.0044, LongCat-2.0 $0.0048, Qwen3.7
