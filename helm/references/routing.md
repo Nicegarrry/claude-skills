@@ -46,8 +46,8 @@ tight5, coffeeclub, VG, admiral; live-verified provider facts). This table is th
 
 | Tier | Models (family) | Pool |
 |---|---|---|
-| T0 bulk | **MiMo-V2.5** (xiaomi; default; 30,100 req/5 h) and **Qwen3.8 Flash** (qwen; 5,400): both 3/3 on the 2026-09-07 planted-defect review probe, Qwen with run-the-code evidence. Muse Spark 1.3 Contributor (meta; 45,300; cheapest and 3/3) is **T0-gated**: synthetic work only unless Nick names a repo | Go: $12 / 5 h, $30 / week, $60 / month, ONE pool for every Go model |
-| T1 mid | **Omen Alpha** (family UNKNOWN; 11,600; best review evidence in the probe; safe cross against openai and anthropic, never paired with a same-vendor guess), **GPT 5.6 Luna** (openai; 2,050; reviews Claude builds only), GLM-5.3-Flash (zhipu; 1,580; untested). Reserve, promote only via A/B: LongCat-2.0, Hy3, Qwen3.7 Plus, Hy4, MiMo-V2.5-Pro, Kimi K2.6, Qwen3.6 Plus. Not routed: Kimi K2.7 Code (10.9× MiMo's cost, identical result), MiniMax M3 (5×, under-severed a defect), MiniMax M2.7 (missed a planted defect; mechanical builder at most), GLM-5.1/5.2 (dominated by 5.3-Flash), Grok 4.6 (weakest agentic numbers, 30-day retention) | same Go pool |
+| T0 bulk | **MiMo-V2.5** (xiaomi; default; 30,100 req/5 h) and **Qwen3.8 Flash** (qwen; 5,400): the only two Go models ENABLED (Nick, 2026-09-07: keep it simple, known publishers only). Both 3/3 on the planted-defect review probe, Qwen with run-the-code evidence; Qwen doubles as the cheap cross-family reviewer. Muse Spark 1.3 Contributor (meta; 45,300; cheapest and 3/3) is declared but **gated**: synthetic work only unless Nick names a repo | Go: $12 / 5 h, $30 / week, $60 / month, ONE pool for every Go model |
+| T1 mid | **None enabled for now.** Noted from testing, declared and disabled in `[models]`, re-checked on the cadence below: Omen Alpha (best review evidence, but undisclosed publisher: **avoid**, Nick 2026-09-07), GPT 5.6 Luna (openai; Claude builds only), GLM-5.3-Flash (untested); reserve LongCat-2.0, Hy3, Qwen3.7 Plus, Hy4, MiMo-V2.5-Pro, Kimi K2.6, Qwen3.6 Plus; not routed Kimi K2.7 Code (10.9× MiMo, same result), MiniMax M3 (5×, under-severed), MiniMax M2.7 (missed a planted defect), GLM-5.1/5.2 (dominated), Grok 4.6 | same Go pool |
 | T2 workhorse | Codex `gpt-5.6-terra` (openai); Claude Sonnet (anthropic) | ChatGPT Pro weekly; Claude 5x |
 | T3 strong | Codex `gpt-5.6-sol` (openai); Claude Opus (anthropic) | same |
 | T4 frontier | Codex `gpt-6-astra` (openai); Claude Fable, coordinator only (anthropic) | same |
@@ -90,13 +90,13 @@ SHA, gate, mutation table, screenshots where there is a screen.
 | Mechanical (tracker ops, bulk edits, config) | T0 `mimo-v2.5` in pilot; terra effort medium until then | script oracle, no review |
 | **Floor: UI by eye** (any label) | T3 build with the simulator loop | T3 cross review, screenshots looked at; no cheap-tier success exists |
 | **Floor: privacy / security / data-loss seam** (any label) | T4 build | T4 cross review; Opus second read when the build was Codex; the supervisor never dispatches these |
-| Staff review `low` | T2, fresh session, runnable; cross preferred (Sonnet for a Codex build, terra for a Claude build); cheap cross candidates `qwen3.8-flash` (primary) and `omen-alpha` (A/B 2 against a terra review) | same-family fresh session allowed; a Go reviewer files findings only, never a verdict line |
+| Staff review `low` | T2, fresh session, runnable; cross preferred (Sonnet for a Codex build, terra for a Claude build); cheap cross candidate `qwen3.8-flash` (A/B 2 against a terra review); `mimo-v2.5` may review a qwen build (cross) | same-family fresh session allowed; a Go reviewer files findings only, never a verdict line |
 | Staff review `medium` | T2 **cross** (Sonnet reviews Codex builds; terra reviews Claude builds); T3 cross when the slice crosses two or more seams | effort xhigh |
 | Staff review `high` | Fable (coordinator or fork) | Opus second read on seams |
 | Fix round | build tier, or one tier down within the same family (the 2026-09-07 re-tier: `medium` fix rounds → terra) | back to the build tier only on a design-level blocker; same builder role |
 | Verify pass | same reviewer model, its own probes | never a fresh cold reviewer |
 | Wave-close gate / blind A/B | T4 read-only cross to the coordinator: `gpt-6-astra` xhigh | at most one per wave close; coordinator writes its position first, then TESTS the conclusions before folding any in |
-| Wave-close cross-family pass | one read-only cross-family review over everything merged since the last wave close; Go second opinion `glm-5.3` or `kimi-k3` (top Terminal-Bench in the roster, 220 and 110 req/5 h) | the doctrine-(b) substitute for per-PR cross review on `low` |
+| Wave-close cross-family pass | one read-only cross-family review over everything merged since the last wave close (astra or Fable per the gate row; no Go model holds this role for now) | the doctrine-(b) substitute for per-PR cross review on `low` |
 
 ## Cross-family review rules (form (b), ruled 2026-09-07)
 
@@ -140,6 +140,27 @@ weekly top-plan window.
 6. Degrade down, never up: when a pool is over its daily target or in quota death, builds drop one
    tier within the same family; reviews switch to the other family's cheapest runnable tier; if
    neither family can serve, the ticket waits as `BLOCKED_QUOTA` with the reset time.
+
+## Model re-evaluation cadence (Nick, 2026-09-07)
+
+Rosters, allowances and prices change silently, so the table above is re-checked on a schedule
+and never edited from memory. Mechanics in the helm CLI (spec D18); until it exists the
+coordinator runs the steps by hand at a wave close.
+
+- **Weekly (automated once `helm models recheck` exists):** diff `opencode models opencode-go`
+  against `[models]`; diff the Go allowance page (https://opencode.ai/docs/go/) against the
+  recorded numbers; summarise pool usage (`opencode stats`) and the ledger's per-model
+  calibration (rounds per build, findings filed / confirmed / overruled). Write
+  `docs/research/models-recheck-<date>.md` in the helm-cli repo; one inbox item with the diff.
+- **Monthly (probed):** re-run the vendored probe harness (`helm-cli/probes/go-<date>/`: the
+  build task and the planted-defect review task) on every enabled model plus any new id from a
+  publisher in `go_publishers`, spend cap $2; record any published SWE-bench, Terminal-Bench or
+  Aider numbers with source URLs.
+- **Ruling:** the coordinator proposes re-tiers as a diff to `[models]`, citing the report.
+  Enabling a model, adding a publisher, or changing the T0 default needs Nick's OK, recorded in
+  `decisions.md`; disabling or moving to reserve is the coordinator's call.
+- **Publisher rule:** Go models dispatch only from `go_publishers` (today xiaomi, qwen, meta).
+  A model with an undisclosed publisher (Omen Alpha) is never enabled, whatever it scores.
 
 ## Data policy
 
