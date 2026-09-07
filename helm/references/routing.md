@@ -46,16 +46,18 @@ tight5, coffeeclub, VG, admiral; live-verified provider facts). This table is th
 
 | Tier | Models (family) | Pool |
 |---|---|---|
-| T0 bulk | OpenCode Go models with ≥4,000 requests per 5 h under the plan's dollar metering: Muse Spark 1.3 Contributor 45,300 (meta; trains on prompts, geo-restricted), MiMo-V2.5 30,100 (xiaomi), Omen Alpha 11,600, LongCat-2.0 11,400, DeepSeek V4 Flash 7,600 (deepseek), Qwen3.8 Flash 5,400 (qwen), Qwen3.7 Plus 4,300, Hy3 4,300 | Go: $12 / 5 h, $30 / week, $60 / month, ONE pool for every Go model |
-| T1 mid | Go models with 1,000–4,000 per 5 h: DeepSeek V4 Flash Vision 3,800, MiniMax M2.7 3,400, Qwen3.6 Plus 3,300, MiMo-V2.5-Pro 3,250, MiniMax M3 3,200, GPT 5.6 Luna 2,050 (openai), GLM-5.3-Flash 1,580, Kimi K2.7 Code 1,350, Hy4 1,350, Kimi K2.6 1,150, DeepSeek V4 Pro 1,050 | same Go pool |
+| T0 bulk | **MiMo-V2.5** (xiaomi; default; 30,100 req/5 h) and **Qwen3.8 Flash** (qwen; 5,400): both 3/3 on the 2026-09-07 planted-defect review probe, Qwen with run-the-code evidence. Muse Spark 1.3 Contributor (meta; 45,300; cheapest and 3/3) is **T0-gated**: synthetic work only unless Nick names a repo | Go: $12 / 5 h, $30 / week, $60 / month, ONE pool for every Go model |
+| T1 mid | **Omen Alpha** (family UNKNOWN; 11,600; best review evidence in the probe; safe cross against openai and anthropic, never paired with a same-vendor guess), **GPT 5.6 Luna** (openai; 2,050; reviews Claude builds only), GLM-5.3-Flash (zhipu; 1,580; untested). Reserve, promote only via A/B: LongCat-2.0, Hy3, Qwen3.7 Plus, Hy4, MiMo-V2.5-Pro, Kimi K2.6, Qwen3.6 Plus. Not routed: Kimi K2.7 Code (10.9× MiMo's cost, identical result), MiniMax M3 (5×, under-severed a defect), MiniMax M2.7 (missed a planted defect; mechanical builder at most), GLM-5.1/5.2 (dominated by 5.3-Flash), Grok 4.6 (weakest agentic numbers, 30-day retention) | same Go pool |
 | T2 workhorse | Codex `gpt-5.6-terra` (openai); Claude Sonnet (anthropic) | ChatGPT Pro weekly; Claude 5x |
 | T3 strong | Codex `gpt-5.6-sol` (openai); Claude Opus (anthropic) | same |
 | T4 frontier | Codex `gpt-6-astra` (openai); Claude Fable, coordinator only (anthropic) | same |
 
-**China-hosted models are excluded (Nick, 2026-09-07).** DeepSeek V4 Flash, Pro and Flash Vision
-on Go sit behind a China-hosted opt-in at the Go console and are OUT; `allow_china_hosted =
-false` in every repo. The T0 default is therefore MiMo-V2.5, pending the Go model allocation
-report (`~/code/other/helm-cli/docs/research/go-model-allocation-2026-09-07.md`). Observed cost per trivial turn (2026-09-07, each
+**China-hosted models are excluded (Nick, 2026-09-07).** Only `deepseek-v4-flash` and
+`deepseek-v4-pro` sit behind the China-hosted opt-in (403 verified on this machine);
+`deepseek-v4-flash-vision-exp` is not gated and is excluded on purpose as experimental. OpenCode
+states all its models are US-hosted, so the Qwen, GLM, Kimi, MiMo, MiniMax, LongCat and Hy models
+are NOT excluded by the ruling. `allow_china_hosted = false` in every repo. Allocation evidence:
+`~/code/other/helm-cli/docs/research/go-model-allocation-2026-09-07.md` (16 live runs, $0.22). Observed cost per trivial turn (2026-09-07, each
 turn carries ~15k tokens of OpenCode's system prompt): MiniMax M2.7 $0.00004, GLM-5.3-Flash
 $0.0012, Muse Spark 1.3 Contributor $0.0016, MiMo-V2.5 $0.0020, Hy3 $0.0022, Omen Alpha $0.0032,
 Qwen3.8 Flash $0.0033, GPT 5.6 Luna $0.0036, MiniMax M3 $0.0044, LongCat-2.0 $0.0048, Qwen3.7
@@ -81,20 +83,20 @@ SHA, gate, mutation table, screenshots where there is a screen.
 | Role | Default | Notes |
 |---|---|---|
 | Coordinator | Fable (Claude) | charts, dispatches, merges, rules; never a worker |
-| Builder `low`, script oracle | T2 `gpt-5.6-terra`, effort high; T1 Go in pilot | one ticket, worktree, PR-only |
-| Builder `low`, research digest | T2 terra; T0/T1 long-context Go in pilot | citation check is mandatory in review |
+| Builder `low`, script oracle | T2 `gpt-5.6-terra`, effort high; T0 `qwen3.8-flash` in pilot (A/B 1 against terra) | one ticket, worktree, PR-only |
+| Builder `low`, research digest | T2 terra; T0 `mimo-v2.5` (1M context) in pilot | citation check is mandatory in review |
 | Builder `medium` | T3 `gpt-5.6-sol`, effort high | one ticket, worktree, PR-only |
 | Builder `high` | T4 `gpt-6-astra`, effort xhigh | **Fable reviews**; astra never reviews its own build |
-| Mechanical (tracker ops, bulk edits, config) | T0 Go in pilot; terra effort medium until then | script oracle, no review |
+| Mechanical (tracker ops, bulk edits, config) | T0 `mimo-v2.5` in pilot; terra effort medium until then | script oracle, no review |
 | **Floor: UI by eye** (any label) | T3 build with the simulator loop | T3 cross review, screenshots looked at; no cheap-tier success exists |
 | **Floor: privacy / security / data-loss seam** (any label) | T4 build | T4 cross review; Opus second read when the build was Codex; the supervisor never dispatches these |
-| Staff review `low` | T2, fresh session, runnable; cross preferred (Sonnet for a Codex build, terra for a Claude build) | same-family fresh session allowed |
+| Staff review `low` | T2, fresh session, runnable; cross preferred (Sonnet for a Codex build, terra for a Claude build); cheap cross candidates `qwen3.8-flash` (primary) and `omen-alpha` (A/B 2 against a terra review) | same-family fresh session allowed; a Go reviewer files findings only, never a verdict line |
 | Staff review `medium` | T2 **cross** (Sonnet reviews Codex builds; terra reviews Claude builds); T3 cross when the slice crosses two or more seams | effort xhigh |
 | Staff review `high` | Fable (coordinator or fork) | Opus second read on seams |
 | Fix round | build tier, or one tier down within the same family (the 2026-09-07 re-tier: `medium` fix rounds → terra) | back to the build tier only on a design-level blocker; same builder role |
 | Verify pass | same reviewer model, its own probes | never a fresh cold reviewer |
 | Wave-close gate / blind A/B | T4 read-only cross to the coordinator: `gpt-6-astra` xhigh | at most one per wave close; coordinator writes its position first, then TESTS the conclusions before folding any in |
-| Wave-close cross-family pass | one read-only cross-family review over everything merged since the last wave close | the doctrine-(b) substitute for per-PR cross review on `low` |
+| Wave-close cross-family pass | one read-only cross-family review over everything merged since the last wave close; Go second opinion `glm-5.3` or `kimi-k3` (top Terminal-Bench in the roster, 220 and 110 req/5 h) | the doctrine-(b) substitute for per-PR cross review on `low` |
 
 ## Cross-family review rules (form (b), ruled 2026-09-07)
 
