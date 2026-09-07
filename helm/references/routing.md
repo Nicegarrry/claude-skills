@@ -52,6 +52,14 @@ tight5, coffeeclub, VG, admiral; live-verified provider facts). This table is th
 | T3 strong | Codex `gpt-5.6-sol` (openai); Claude Opus (anthropic) | same |
 | T4 frontier | Codex `gpt-6-astra` (openai); Claude Fable, coordinator only (anthropic) | same |
 
+**DeepSeek V4 Flash and Pro are gated** behind an explicit China-hosted opt-in at the Go console
+(refused from this machine 2026-09-07); `allow_china_hosted = false` by default, pending Nick's
+ruling. The T0 default is therefore MiMo-V2.5. Observed cost per trivial turn (2026-09-07, each
+turn carries ~15k tokens of OpenCode's system prompt): MiniMax M2.7 $0.00004, GLM-5.3-Flash
+$0.0012, Muse Spark 1.3 Contributor $0.0016, MiMo-V2.5 $0.0020, Hy3 $0.0022, Omen Alpha $0.0032,
+Qwen3.8 Flash $0.0033, GPT 5.6 Luna $0.0036, MiniMax M3 $0.0044, LongCat-2.0 $0.0048, Qwen3.7
+Plus $0.0066, MiMo-V2.5-Pro $0.0071, Kimi K2.7 Code $0.0142, Kimi K2.6 $0.0143.
+
 Go models under 1,000 per 5 h (GLM-5.3 220, Qwen3.8 Max 160, Grok 4.6 169, Kimi K3 110) are
 frontier-priced and are not routed through Go except as a single wave-close second opinion. A Go
 "request" is one model turn; a 150-turn build consumes 150. Allowances verified 2026-09-07 at
