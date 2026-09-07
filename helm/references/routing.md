@@ -58,8 +58,8 @@ tight5, coffeeclub, VG, admiral; live-verified provider facts). This table is th
 states all its models are US-hosted, so the Qwen, GLM, Kimi, MiMo, MiniMax, LongCat and Hy models
 are NOT excluded by the ruling. `allow_china_hosted = false` in every repo. Allocation evidence:
 `~/code/other/helm-cli/docs/research/go-model-allocation-2026-09-07.md` (16 live runs, $0.22). Observed cost per trivial turn (2026-09-07, each
-turn carries ~15k tokens of OpenCode's system prompt): MiniMax M2.7 $0.00004, GLM-5.3-Flash
-$0.0012, Muse Spark 1.3 Contributor $0.0016, MiMo-V2.5 $0.0020, Hy3 $0.0022, Omen Alpha $0.0032,
+turn carries ~15k tokens of OpenCode's system prompt; MiniMax M2.7's first reading of $0.00004
+did not reproduce, the allocation probe measured $0.0011): GLM-5.3-Flash $0.0012, Muse Spark 1.3 Contributor $0.0016, MiMo-V2.5 $0.0020, Hy3 $0.0022, Omen Alpha $0.0032,
 Qwen3.8 Flash $0.0033, GPT 5.6 Luna $0.0036, MiniMax M3 $0.0044, LongCat-2.0 $0.0048, Qwen3.7
 Plus $0.0066, MiMo-V2.5-Pro $0.0071, Kimi K2.7 Code $0.0142, Kimi K2.6 $0.0143.
 
