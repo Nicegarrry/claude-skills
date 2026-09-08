@@ -24,6 +24,24 @@ tight5, coffeeclub, VG, admiral; live-verified provider facts). This table is th
 - The 2026-09-07 marlo re-tier that moved `medium` fix rounds to terra (previously only a comment
   in `marlo/scripts/codex-ticket.sh`) is recorded here as the fix-round row.
 
+## Amendments 2026-09-09 (marlo build 1 evidence)
+
+Source: `~/code/iosdev/_wiki/decisions/2026-09-09-helm-learnings-marlo-build1.md` (rules 1–6) and its
+evidence file. Applied to the tables below.
+
+1. **`medium` builds → astra at effort `medium`.** Two trials (marlo #74: 573k tokens, zero fix rounds;
+   #23, 83 files: 1.37M tokens, one fix round) against the sol-high baseline (#31: 5.5M tokens, seven
+   rounds). Locked on marlo main `ad7fcbb` Sep 7. **Sol is avoided** ("inefficient middle ground",
+   Nick Sep 8); it is the fallback only when astra is at capacity. Fix rounds for `medium` stay terra.
+2. **Default under budget pressure (Nick, Sep 8): terra for builds, reviews and verifies; astra only
+   for `high`/tricky; luna for `low`; no sol; cap 4 concurrent.** Every cap of the week was a human
+   reading the dashboard percentage, never a computed figure — treat any pool number not from
+   `codex exec --json` `rate_limits` or the dashboard as unverified.
+3. **Capacity death is a distinct class from quota death** (budget rule 7 below).
+4. **Cheap-tier dispatch rule, sharpened:** luna/T1 bounce on evidence hygiene (SHA-bound gate block,
+   `[#N]` title, command tails), never on substance, and could not land a ship-path integration
+   (#173). Cheap tier = one file or one script + a machine-decidable oracle, or don't.
+
 ## Principles (ruled 2026-09-07)
 
 1. **Route on three dimensions.** The complexity label picks the builder tier. The seam class
@@ -108,8 +126,8 @@ SHA, gate, mutation table, screenshots where there is a screen.
 | Coordinator | Fable (Claude) | charts, dispatches, merges, rules; never a worker |
 | Builder `low`, script oracle | T2 `gpt-5.6-terra`, effort high; T1 `gpt-5.6-luna` via Codex in pilot (A/B 3 against terra, medium effort); T0 `qwen3.8-flash` in pilot (A/B 1 against terra) | one ticket, worktree, PR-only; `Oracle:` line mandatory; a Luna build gets a cross review from qwen, mimo or Sonnet, never terra |
 | Builder `low`, research digest | T2 terra; T0 `qwen3.8-flash` in pilot (`mimo-v2.5` where 1M context matters) | citation check is mandatory in review |
-| Builder `medium` | T3 `gpt-5.6-sol`, effort high | one ticket, worktree, PR-only |
-| Builder `high` | T4 `gpt-6-astra`, effort xhigh | **Fable reviews**; astra never reviews its own build |
+| Builder `medium` | T4 `gpt-6-astra`, effort **medium** (amended 2026-09-09; was T3 sol high) | one ticket, worktree, PR-only; sol high only as the fallback when astra is at capacity |
+| Builder `high` | T4 `gpt-6-astra`, effort xhigh | coordinator-level review by whichever family is neither the builder's nor the scarce one this week (Fable, or sol/astra xhigh cross inside Codex when Anthropic usage is being protected); astra never reviews its own build |
 | Mechanical (tracker ops, bulk edits, config) | T0 `qwen3.8-flash` in pilot (`mimo-v2.5` second); terra effort medium until then | script oracle, no review |
 | **Floor: UI by eye** (any label) | T3 build with the simulator loop | T3 cross review, screenshots looked at; no cheap-tier success exists |
 | **Floor: privacy / security / data-loss seam** (any label) | T4 build | T4 cross review; Opus second read when the build was Codex; the supervisor never dispatches these |
@@ -170,6 +188,11 @@ of Opus builders alone burned 18% of a weekly top-plan window.
 6. Degrade down, never up: when a pool is over its daily target or in quota death, builds drop one
    tier within the same family; reviews switch to the other family's cheapest runnable tier; if
    neither family can serve, the ticket waits as `BLOCKED_QUOTA` with the reset time.
+7. **Capacity death** (`ERROR: Selected model is at capacity`, 2026-09-09): the session ends with no
+   verdict and no `tokens used` line, on any tier (marlo #103 astra, #124 sol verify, #136 terra).
+   It is not a quota event — do not parse a reset time or switch fleets. Push what is committed,
+   post a continuation note that embeds the original review, re-spawn the SAME role once on the
+   same tier; only on a second death fall back one tier, and never for design-level work.
 
 ## Model re-evaluation cadence (Nick, 2026-09-07)
 

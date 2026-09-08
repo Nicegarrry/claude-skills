@@ -198,3 +198,17 @@ forward findings from prior PRs by name ("carry finding S4 from PR #26").
 
 Factory detail: `~/code/web/docs/landmines-factory.md` (F1–F16, web) and `~/code/iosdev/AGENTS.md` (iOS).
 New web repos start from `~/code/web/_factory/skeleton/`.
+
+Added 2026-09-09 from the marlo build-1 run (evidence:
+`~/code/iosdev/_wiki/decisions/2026-09-09-helm-learnings-marlo-build1.md`):
+
+17. Provider capacity death looks like silence, not a limit → `routing.md` budget rule 7 (re-spawn same role once, then degrade).
+18. A coordinator note posted as a PR review REPLACES the text the next `fix` reads → embed the original review verbatim in every coordinator note.
+19. A dispatcher that parses the ticket body stalls on a `## Wave` line left in a comment → wave/branch/worktree line lives in the body.
+20. A disk-full panic prints no session-end line and the log monitor missed three deaths for 50 minutes → monitor the process table and `df`, not just logs; match whole lines.
+21. Monitors and wakeups die with the session, and stale ones from the last session keep firing → re-arm the loop FIRST on every resume; kill the old monitor.
+22. Fleet-infrastructure regressions (a suite hitting a thread limit, a loopback flake) hang every gate → they outrank product tickets on the merge train.
+23. The flows only the ship pipeline runs are the ones that rot (marlo #175) → route/navigation/shared-screen changes run the full e2e suite before the PR; never run a gate during the ship's e2e step.
+24. A probabilistic assertion in a release-gating suite (1/256) killed an upload run → none allowed.
+25. Reviewer inside the builder's worktree during a machine crunch produced findings nobody could adjudicate → detached review worktrees are the script default, not a convention.
+26. The machine, not the model budget, was the ceiling: simulator boots (not compiles) drove load past 800 → slot lock ≤2 gates, 3–4 worker sessions on 16 GB, sweep after every merge and heartbeat, and a G-gate variant for products with no prod surface (a report-only simulator walk merged as a docs-only PR).

@@ -128,3 +128,66 @@ land here first.
 
 The tracker + worktrees + PR-only merges already ARE the protocol. Another coordination layer
 (omniagent, pi, or similar) adds a failure surface and no capability.
+
+## Dispatcher contract learned on marlo (2026-09-09)
+
+Evidence: `~/code/iosdev/_wiki/decisions/2026-09-09-helm-learnings-marlo-build1.md` §2, §5, §6.
+These are the behaviours of `scripts/codex-ticket.sh` as it ended the run; a new repo's dispatcher
+should reproduce them and a coordinator should assume them.
+
+- **`## Wave` line in the ticket BODY**, never a comment: `` `w6` · branch `x` · worktree `~/code/<factory>/<app>-wt-<slug>` ``.
+  The dispatcher resolves worktree and branch from it and creates the worktree with a plain
+  `git worktree add <path> -b <branch> origin/main` when absent. Worktrees never under `/tmp`.
+- **`build` hard-resets an existing worktree to `origin/<branch>`; `fix` reuses it without reset.**
+  Commit and push any WIP a dead session left before re-dispatching `build` — and diff that WIP
+  against the branch's tests first (it was once a mutation harness).
+- **`fix` requires a formal review on the PR and reads the LATEST non-empty review body.** A
+  coordinator ruling posted with `gh pr review --comment` replaces that text: every coordinator note
+  embeds the original review verbatim. With no review at all, merge main by hand and dispatch
+  `review`, not `fix`.
+- **`review` refuses a stale `<app>-wt-review-<PR>` worktree; `verify` refuses without the reviewer's
+  `CODEX_MODEL` and `CODEX_EFFORT` replayed** from the review dispatch. Both fail quietly enough to
+  warrant a `--dry-run` first.
+- **`complexity:<high|medium|low>` is required and singular**; the script refuses zero or two labels.
+  A `high` review or verify refuses to run on the builder's tier.
+- **Gate evidence is SHA-bound.** `GATE GREEN` names the SHA it ran on; commits above it are legal
+  only if they touch nothing outside `logs/tickets/` or are a clean merge of `origin/main`.
+- **Gate once per PR** (reviewer convention 2, Nick 2026-09-07): first review checks the SHA-bound
+  block and runs only the touched suites plus ≤2 mutation probes and the changed screens' e2e flows;
+  the verify-before-merge round runs the one full gate the reviewer owns; docs-only or merge-only
+  re-reviews run a SHA check only; one prebooted review simulator per PR, deleted on the merge-round
+  APPROVE. A review that skipped a gate says so and names the builder's block it relied on.
+- **Verdicts never wait for a CI that does not exist**; the gate script is the CI (say so in the
+  review template).
+- **Spawned panes are pinned to the helm's own herdr workspace** (`HERDR_*` env), and only sessions
+  with `-C <this repo>` count toward the cap — other factories share the machine.
+
+## Fleet-ops checklist learned on marlo (2026-09-09)
+
+- **On resume, first:** kill any monitor from the previous session, re-arm the heartbeat and the
+  monitor, THEN read state.
+- **Heartbeat cadence:** 30 min in heavy fleet phases, 60 min idle, ~25 min while an external state
+  (a beta review, a deploy) is actively moving.
+- **Heartbeat duties, every beat:** clear stale gate slots (`kill -0` the owner pid); delete orphaned
+  gate simulators whose pid is dead; `scripts/sweep.sh --quiet`; `df`; `gh pr list --state open`;
+  check each long-running process is alive (`pgrep`), not just its log; hold new dispatches while
+  load > 150.
+- **Monitor patterns (whole-line):** `^tokens used` (the only session-end marker),
+  `^ERROR: You've hit your usage limit`, `^ERROR: Selected model is at capacity`,
+  `No space left on device`, `^thread '.*' panicked at`, the repo's Codex process count, free disk
+  under a floor, open-PR head changes. Substring matches on "usage limit" produce false positives
+  from any log that reads a file containing those words.
+- **Long runs:** `nohup … & disown` (Bash background tasks cap at 10 min) + a `tail -f | grep`
+  monitor + a `pgrep` liveness loop; a monitor alone missed a `SHIP-*-EXIT` line once.
+- **Sweep is orchestrator-only** and decides liveness from the tracker and process table: a running
+  worker, an open PR, a ticket in a live brief, a live gate sim pid, the human's demo sim, or a
+  modification in the last 6 h keeps a thing; everything else (merged worktrees + branches, review
+  worktrees of closed PRs, dead sims, stuck `Deleting-*` sims, per-ticket tmp, scratch derived data,
+  worker rollouts older than two days) is reclaimed. The gate fails fast under 8 GB free.
+- **Kill one pid per call, and `ps -o command` it first** — a running gate was killed on an `lsof`
+  match once.
+- **Handoff = a running log** refreshed at every milestone, ~30 timestamped sections, ending in a
+  resume checklist per open PR (head SHA, blocker, dirty/unpushed worktrees). Both fleet deaths on
+  marlo were resumed from this file; the wakeup chain never fired through either outage.
+- **Clearing the coordinator kills its Claude subagents but not its Codex fleet** — plan resumes
+  around that asymmetry.
