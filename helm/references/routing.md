@@ -84,37 +84,25 @@ D-ticket and build tickets at charter time. The old pattern of one massive issue
 
 ## The ladder
 
-| Tier | Models (family) | Pool |
-|---|---|---|
-| T0 bulk | **Qwen3.8 Flash** (qwen; default, Nick 2026-09-07: better on review evidence at $0.013 a ticket against MiMo's $0.008, a difference not worth optimising) and **MiMo-V2.5** (xiaomi; second model; the cross-family reviewer of a Qwen build): the only two Go models ENABLED (keep it simple, known publishers only). Both 3/3 on the planted-defect review probe, Qwen with run-the-code evidence. Muse Spark 1.3 Contributor (meta; cheapest and 3/3) is declared but **gated**: synthetic work only unless Nick names a repo | Go: $12 / 5 h, $30 / week, $60 / month, ONE pool for every Go model |
-| T1 mid | **None enabled for now.** Noted from testing, declared and disabled in `[models]`, re-checked on the cadence below: Omen Alpha (best review evidence, but undisclosed publisher: **avoid**, Nick 2026-09-07), GPT 5.6 Luna (openai; Claude builds only), GLM-5.3-Flash (untested); reserve LongCat-2.0, Hy3, Qwen3.7 Plus, Hy4, MiMo-V2.5-Pro, Kimi K2.6, Qwen3.6 Plus; not routed Kimi K2.7 Code (10.9× MiMo, same result), MiniMax M3 (5×, under-severed), MiniMax M2.7 (missed a planted defect), GLM-5.1/5.2 (dominated), Grok 4.6 | same Go pool |
-| T1 on the Pro pool | **Codex `gpt-5.6-luna`** (openai): 5 / 0.5 / 30 credits per 1M tokens against terra's 50 / 5 / 300 (rate card, verified 2026-09-07); measured 0.60 credits per ticket against terra's 7.05 on the vendored build task. Builds `low`; reviews Claude, Qwen and MiMo builds; never a Codex build. Takes the `low` build default after A/B 3 against terra | ChatGPT Pro weekly (rolling 7 days) |
-| T2 workhorse | Codex `gpt-5.6-terra` (openai); Claude Sonnet (anthropic) | ChatGPT Pro weekly; Claude 5x |
-| T3 strong | Codex `gpt-5.6-sol` (openai); Claude Opus (anthropic) | same |
-| T4 frontier | Codex `gpt-6-astra` (openai); Claude Fable, coordinator only (anthropic) | same |
+**The roster moved (helm-cli D23, 2026-09-14).** This file no longer carries a model roster.
+Tiers and enablement live in each repo's `[models]` block in `helm.toml`, because that is what
+`config.validateChoice` actually enforces — and when prose and code disagree, code wins silently.
+Read the target repo's `helm.toml`, and helm-cli's `docs/spec.md` D2/D22/D23 for the rationale.
 
-**China-hosted models are excluded (Nick, 2026-09-07).** Only `deepseek-v4-flash` and
-`deepseek-v4-pro` sit behind the China-hosted opt-in (403 verified on this machine);
-`deepseek-v4-flash-vision-exp` is not gated and is excluded on purpose as experimental. OpenCode
-states all its models are US-hosted, so the Qwen, GLM, Kimi, MiMo, MiniMax, LongCat and Hy models
-are NOT excluded by the ruling. `allow_china_hosted = false` in every repo. Allocation evidence:
-`~/code/other/helm-cli/docs/research/go-model-allocation-2026-09-07.md` (16 live runs, $0.22). Observed cost per trivial turn (2026-09-07, each
-turn carries ~15k tokens of OpenCode's system prompt; MiniMax M2.7's first reading of $0.00004
-did not reproduce, the allocation probe measured $0.0011): GLM-5.3-Flash $0.0012, Muse Spark 1.3 Contributor $0.0016, MiMo-V2.5 $0.0020, Hy3 $0.0022, Omen Alpha $0.0032,
-Qwen3.8 Flash $0.0033, GPT 5.6 Luna $0.0036, MiniMax M3 $0.0044, LongCat-2.0 $0.0048, Qwen3.7
-Plus $0.0066, MiMo-V2.5-Pro $0.0071, Kimi K2.7 Code $0.0142, Kimi K2.6 $0.0143.
+The table that used to sit here was three rulings out of date by 2026-09-14 — it still claimed
+"the only two Go models ENABLED", Muse "gated: synthetic work only", and Kimi "not routed", all
+false, in the file a dispatching agent reads first. That is why it is a pointer now.
 
-Go models under 1,000 per 5 h (GLM-5.3 220, Qwen3.8 Max 160, Grok 4.6 169, Kimi K3 110) are
-frontier-priced and are not routed through Go except as a single wave-close second opinion. A Go
-"request" is one model turn; a 150-turn build consumes 150. Allowances verified 2026-09-07 at
-https://opencode.ai/docs/go/. Model ids are `opencode-go/<id>`, to be verified against
-`opencode models`.
+**What tiers mean** (unchanged, and still doctrine):
 
-Status 2026-09-07: Go is subscribed and authenticated on this machine (`opencode` 1.18.29 via
-`brew install anomalyco/tap/opencode`; credential in `~/.local/share/opencode/auth.json`, provider
-id `opencode-go`; `opencode models opencode-go` lists all 27 ids above). Until the helm CLI's
-`opencode` adapter lands (M1), T0/T1 work stays on terra; ad-hoc use is
-`opencode run --model opencode-go/<id> --format json "<prompt>"`.
+- Tier is the **size of ticket** a model can be trusted with, not its price. Routing picks the
+  cheapest model at or above the tier a ticket needs.
+- `build_ladder` and `review_ladder` are separate, because the evidence diverges: a model can
+  review well and build badly, or build correctly and never run its gate.
+- **A higher tier may always review at or below itself** — review is a floor, not a list.
+- **Role follows allowance.** A model whose 5-hour window is smaller than one ticket's turn
+  budget cannot build at that tier however capable it is; it stalls mid-ticket holding a
+  worktree. Reviews are 20-40 turns and fit where builds do not.
 
 ## Routing table (2026-09-07)
 
