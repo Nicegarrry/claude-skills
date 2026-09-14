@@ -54,10 +54,14 @@ Dimensions (priority order):
 4. <UX by eye if user-facing — screenshot and LOOK>
 5. <scope hygiene — declared seams only, deps pinned, registry discipline>
 
-File review via `gh pr review P --comment` titled "Staff review — verdict: <APPROVE|REQUEST
-CHANGES>" with findings by severity: BLOCKING / SHOULD / NIT. (Formal request-changes is
-impossible on same-account PRs — the verdict line is authoritative.) Do NOT edit files, do
-NOT merge. Final reply max 12 lines: verdict + one line per finding.
+Write the verdict to ./verdict.md, then POST IT — `gh pr review P --repo <repo> --comment
+--body-file ./verdict.md` — titled "Staff review — verdict: <APPROVE|REQUEST CHANGES>" with
+findings by severity: BLOCKING / SHOULD / NIT, naming the head SHA reviewed. (Formal
+request-changes is impossible on same-account PRs — the verdict line is authoritative.)
+**Post with gh FIRST, then reply.** A review that is done but never posted is worth nothing:
+the attempt records `succeeded` while the PR carries no verdict and the merge stays blocked
+(helm-cli #84 — a reviewer burned 63k tokens, exited succeeded, posted nothing). Do NOT edit
+files, do NOT merge. Final reply max 12 lines: verdict + one line per finding.
 ```
 
 ## Fix-pass message (to the SAME builder ROLE)
