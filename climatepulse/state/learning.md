@@ -28,6 +28,36 @@
 
 ---
 
+## 2026-09-22 — Run 3
+
+**What dominated today:**
+- AU storage + grid: RenewEconomy delivered 5 kept items out of 10 fetched — the strongest single-run yield of any source across all 3 runs. Stories: AU home battery $78.5M raise (80), Intergenerational Report fossil fuel outlook (77), Victoria coal-country BESS commissioning (77), 2 GW WA hybrid project EPBC approval (77), offshore wind transmission route (75). AU signal was genuinely dense today; AU +5 boost correctly elevated all five.
+- Electrek's one kept item (Tesla/Sunrun 580 MW VPP, 76) was the only strong US grid-services story. The other 9 Electrek items were consumer product reviews, deals, and lifestyle content — confirmed as low investor-lens yield.
+- Utility Dive delivered 3 strong kept items (Solar for All reinstatement, NY transmission approval, Texas PUC softened data-centre rules) from 7 new non-sponsored items — solid tier-2 yield.
+- PV Magazine: 3 kept (US 100 GW production milestone 73, 33.3% perovskite-silicon tandem 72, Canada anti-dumping rescinded 70) from 10 new items. Good signal density.
+- Canary Media: 2 kept (Ohio 800 MW solar+BESS permit 73, Duke Energy gas plant rejection 72) from 2 substantive items (1 how-to guide correctly dropped).
+- Carbon Brief, Inside Climate News, Guardian: 0 kept items this run. All new content was climate-science / nature / policy stories (El Niño record, planetary boundaries, drought) that score well for science but don't clear the investor-lens floor at 65.
+- Grist, Dialogue Earth, Euractiv, DeSmog: 0 kept (last two still blocked from cloud environment).
+
+**Source performance (run 3 only):**
+- RenewEconomy (AU): 10 fetched, 5 kept (50% keep rate) — highest ever single-run yield. Dominant today; no concern as AU news was genuinely busy.
+- PV Magazine: 10 fetched, 3 kept (30% keep rate) — excellent signal density per item.
+- Utility Dive: 7 non-sponsored fetched, 3 kept (43% keep rate) — best US grid/policy yield.
+- Canary Media: 3 fetched, 2 kept (67%) — highest hit rate of any source.
+- Electrek: 10 fetched, 1 kept (10%) — confirmed pattern of consumer-product dominance vs investor signal. Consider raising effective floor to 72 for Electrek items.
+- CleanTechnica: 6 new fetched, 0 kept after dedup (Solar for All story duped with Utility Dive). Consumer product and political commentary items still dominate.
+- Carbon Brief, Inside Climate News, Guardian: low investor signal today (climate-science focus cycle). Not a removal concern — pattern consistent with news cycle.
+
+**Tuning applied:**
+- None (conservative third run; source proposals from run 1–2 not yet confirmed interactive).
+
+**Proposed for next interactive run:**
+- Raise Electrek effective significance floor to 72: over 3 runs it has fetched 55 items, kept 5 (9% rate); all 5 kept items needed to be genuinely exceptional to clear. Raising the bar reduces scoring noise without material quality loss.
+- CleanTechnica removal still under consideration: 50 fetched across 3 runs, 1 kept (2% rate). Run 1 proposed this; run 3 confirms the pattern. Recommend removal or tier-3 treatment (score a sample only).
+- Euractiv and DeSmog both still 0 fetched across all 3 cloud runs — confirm residential IP works, then validate URLs. If residential also fails, drop DeSmog; try alternate Euractiv URL.
+
+---
+
 ## 2026-09-21 — Run 2
 
 **What dominated today:**
