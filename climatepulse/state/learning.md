@@ -82,3 +82,37 @@
 **Proposed for next interactive run:**
 - Euractiv and DeSmog still blocked from this environment — confirm residential IP works, then validate.
 - Consider proposing CleanTechnica effective floor raise to 75 if consumer-product bias continues.
+
+---
+
+## 2026-09-23 — Run 4
+
+**What dominated today:**
+- AU grid + wind: RenewEconomy delivered 5 kept items out of 8 fetched (63% keep rate, highest single-run rate across all sources across all 4 runs). Stories: AU renewables penetration record (76), impossible wind project breaks investment drought (76), biggest coal project approval vs Albanese climate speech contradiction (74), VIC Labor BYO renewables for data centres (72), wind turbine extra-long blades cost reduction (71). AU signal genuinely dense again.
+- Storage economics: RMI's 30% battery growth + lower cost story (78) was the top US signal today — confirms storage has crossed the competitiveness threshold. NC Duke Energy gas peaker blocked by regulator on cost grounds (75) reinforces the same thesis from the demand side.
+- Solar manufacturing: IRA capex $12.2B by end 2026 (78) — the strongest solar story of the 4-run series so far; domestic US supply chain is now locked in.
+- Transport: Geely's 2.2MW / 4-minute charger (72) is a genuine breakthrough. VW cutting ICE production shifts (73) is the strongest OEM transition signal seen yet.
+- Climate-finance: Canary Media's US utilities failing grade (73) provides a sector-wide ESG signal; interesting for portfolio screening.
+- Court win for Solar for All grants (73, Inside Climate News) — IRA legal risk lower than feared.
+- Canary Media delivered 2/2 kept items (100% this run) — consistently high signal density. Consider tier 1 treatment.
+
+**Source performance (run 4 only):**
+- RenewEconomy (AU): 8 fetched, 5 kept (63%) — dominant run. High AU news density is cyclical; watch whether this persists or regresses next run.
+- Canary Media: 2 fetched, 2 kept (100%) — perfect hit rate this run, 6/20 cumulative (30%). Strongest US-investor-lens source. 
+- PV Magazine: 10 fetched, 3 kept (30%) — consistent. Good signal density without the consumer-product noise of Electrek.
+- Utility Dive: 5 fetched, 2 kept (40%) — solid; grid/policy angle consistently investor-relevant.
+- Electrek: 13 fetched, 2 kept (15%) — lower hit rate than run 3 (1/10 was already an outlier run). Cumulative 7/68 (10%) — Electrek consumer-product dominance is confirmed across 4 runs.
+- CleanTechnica: 15 fetched, 0 kept (0%) — cumulative 1/65 (1.5%). Four runs without meaningful investor signal. Ready for removal recommendation.
+- Grist: 4 fetched, 0 kept (0%) — cumulative 0/19. No investor signal across 4 runs. Ready for removal recommendation.
+- The Guardian, Carbon Brief, Inside Climate News: low kept rates but not removal candidates — these are climate-science / policy cycles; signal appears in batches. Keep.
+- Euractiv (EU), DeSmog: still 0 fetched in 4 consecutive cloud runs. Structural block, not news cycle.
+
+**Tuning applied:**
+- None (conservative; interactive confirmation required before any structural changes).
+
+**Proposed for next interactive run:**
+- Remove CleanTechnica: 65 fetched, 1 kept (1.5%) across 4 runs. Consumer-product and op-ed dominance is persistent; investor-signal items appear (if at all) in Inside Climate News or Utility Dive first.
+- Remove Grist: 19 fetched, 0 kept (0%) across 4 runs. Environmental science / narrative journalism, not investor-signal news.
+- Validate Euractiv + DeSmog from a residential IP. If both still 0 fetched, drop DeSmog; try alternate Euractiv URL.
+- Raise Electrek effective significance floor to 73 (from default 65): cumulative 10% keep rate over 4 runs; kept items are exceptional — just need a higher bar to trim the 90% that doesn't land.
+- Consider promoting Canary Media to tier 1: 30% cumulative keep rate (6/20), 100% this run. Strongest US investor-lens source in the stack.
