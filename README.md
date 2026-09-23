@@ -14,6 +14,7 @@ reads) and `README.md` (for humans).
 | [`proofing-room`](./proofing-room) | Drop a self-contained wrapper onto any HTML page so reviewers can pin comments and edit copy in place, then export an anchored JSON an agent can action. Dormant until you add `?proof` to the URL; no backend or build step. |
 | [`session-handoff`](./session-handoff) | `/wrap` before you `/clear` and the live agent writes a per-project handoff (what was done · next · gotchas · key files); a `SessionStart` hook auto-injects it into the next session, with a headless `SessionEnd` fallback if you forget. Run `./session-handoff/install.sh` to wire up the hooks. |
 | [`feedback-addressing`](./feedback-addressing) | Work through reviewer feedback on a Word `.docx` (or PowerPoint `.pptx`) end-to-end — extract comments + dot-points, tier P1/P2/P3, research cited-evidence gaps, apply native Word track-changes, and produce an internal audit table plus a reviewer-facing email reply. Drafts only; never auto-sends. Ships Python helpers + smoke tests. |
+| [`helm`](./helm) | Thin how-to for the [Helm MCP server](https://github.com/Nicegarrry/helm3): dispatch coding work to cheap worker agents in their own worktrees, then gate, PR, cross-family review and merge — the orchestration loop and the rules that keep long runs cheap. Harness lives in `helm3`. |
 
 ## Installing a skill
 
