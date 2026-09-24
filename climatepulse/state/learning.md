@@ -116,3 +116,39 @@
 - Validate Euractiv + DeSmog from a residential IP. If both still 0 fetched, drop DeSmog; try alternate Euractiv URL.
 - Raise Electrek effective significance floor to 73 (from default 65): cumulative 10% keep rate over 4 runs; kept items are exceptional — just need a higher bar to trim the 90% that doesn't land.
 - Consider promoting Canary Media to tier 1: 30% cumulative keep rate (6/20), 100% this run. Strongest US investor-lens source in the stack.
+
+---
+
+## 2026-09-25 — Run 5
+
+**What dominated today:**
+- AU clean-energy M&A: Singapore asset manager acquiring a leading AU renewable developer (82) was the top story — offshore capital continuing to flow into AU transition assets ahead of capacity buildout.
+- AU wind revival: Contracts awarded for AU's biggest wind project start in 2+ years (79) — strong de-risking milestone signal.
+- US capital unlocked: $7B Solar for All freed by court ruling (78) removes a major IRA capital blockage; DOE's $1.9B advanced transmission funding (77) continues US grid modernisation spend.
+- AU grid risk: Origin reviving gas/diesel peaker (76) and $10B fracked gas pipeline cost blowout (74) are AU stranded-asset/lock-in risk signals running counter to the AU transition narrative.
+- Transport cost curve: Carbon Brief's 9x EV cheapness finding (75) is the strongest published TCO confirmation of EV transition point.
+- China signals: Solar manufacturing layoffs (74) and financial institutions in China carbon market (73) round out the global picture.
+
+**Source performance (run 5):**
+- RenewEconomy (AU): 10 fetched, 6 kept (60%) — cumulative 38 fetched, 22 kept (58%). Dominant across all 5 runs; AU signal density remains high.
+- Carbon Brief: 2 fetched, 2 kept (100%) — perfect this run. Cumulative 9 fetched, 4 kept (44%). Consistently highest quality-per-item source.
+- Canary Media: 7 fetched, 2 kept (29%) — cumulative 27/8 (30%). Steady US investor-lens signal. 
+- PV Magazine: 10 fetched, 3 kept (30%) — cumulative 40/11 (28%). Reliable solar manufacturing and market-pricing signal.
+- Utility Dive: 8 fetched, 1 kept (13%) — lower this run; DOE transmission story was the single keep. Cumulative 30/7 (23%).
+- Dialogue Earth: 5 fetched, 2 kept (40%) — China solar layoffs + carbon market finance stories both above floor. Cumulative 10/2 (20%). Better than its early track record.
+- Inside Climate News: 10 fetched, 0 kept — mostly environmental science, aquaculture, and health stories; none cleared investor-lens floor.
+- The Guardian: 7 fetched, 0 kept — editorial opinion, wildlife, and climate-science cycle today.
+- CleanTechnica: 21 fetched, 0 kept — cumulative 86/1 (1%). Removal justified.
+- Electrek: 24 fetched, 0 kept — cumulative 92/7 (8%). Consumer-product dominance persists; confirm floor raise to 73.
+- Grist: 8 fetched, 0 kept — cumulative 27/0 (0%). Removal justified.
+- Euractiv (EU), DeSmog: still 0 fetched across all 5 cloud runs.
+
+**Tuning applied:**
+- None (conservative; proposals still pending interactive confirmation).
+
+**Proposed for next interactive run (persistent):**
+- Remove CleanTechnica: 86 fetched, 1 kept (1.2%) across 5 runs. No investor-signal pattern.
+- Remove Grist: 27 fetched, 0 kept (0%) across 5 runs.
+- Raise Electrek effective significance floor to 73: 92 fetched, 7 kept (8%) cumulative; kept items are exceptional.
+- Validate Euractiv and DeSmog from residential IP; 0 fetched across 5 cloud runs is structural.
+- Consider Dialogue Earth tier upgrade: 10 fetched, 2 kept (20%) — China-specific finance and supply-chain angle is adding value.
