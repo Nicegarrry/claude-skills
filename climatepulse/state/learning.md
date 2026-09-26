@@ -119,6 +119,37 @@
 
 ---
 
+## 2026-09-27 — Run 6
+
+**What dominated today:**
+- US solar supply chain shock: Anza's 40% module price spike projection from Section 232 tariffs (78) was the top-scoring story. Concurrent with Growatt's 10% inverter/battery price increase, this points to converging cost pressures on US and global solar+storage project economics — a theme worth tracking over next 2–3 runs.
+- AU storage economics confirmed: RenewEconomy data showing batteries displacing gas as the "biggest loser" in the NEM (76) and Snowy 2.0 foundations poured (78) were both high-signal AU grid stories. AU news cycle dense again.
+- IRA capital de-risked: Second federal court reinstating Solar for All (76) strengthens the thesis that IRA programs survive legal challenge — useful signal for investors in US clean energy that were discounting IRA exposure.
+- China market design: Chinese province spot-market mechanism for grid-side BESS (74) is a leading indicator worth following. If it scales nationally, it changes the merchant-BESS economics globally.
+- ESG lock-in risk: Texas utility gas-only plan for Meta's $10B data centre (72) is a direct illustration of how hyperscale demand growth is being captured by gas in deregulated markets.
+
+**Source performance (run 6):**
+- RenewEconomy (AU): 10 fetched, 6 kept (60%) — cumulative 48 fetched, 28 kept (58%). Dominant and consistent.
+- PV Magazine: 10 fetched, 3 kept (30%) — cumulative 50 fetched, 14 kept (28%). Reliable signal density; two stories today linked to tariff/cost pressures.
+- Utility Dive: 3 new fetched (after dedup), 1 kept (33%) — Solar for All second ruling.
+- Electrek: 18 new fetched, 1 kept (6%) — Tesla Semi volume production kept; all others consumer product news (car reviews, VW discounts, charging deals). Cumulative 110 fetched, 8 kept (7%). Proposed floor raise to 73 now even more justified.
+- Inside Climate News: 7 new fetched, 1 kept (14%) — Meta data centre gas story. Science/health/nature stories dropped.
+- CleanTechnica: 15 new fetched, 1 kept (7%) — NYC Comptroller $5B climate investment (from Sierra Club piece). Cumulative 101 fetched, 2 kept (2%). Removal still warranted; that kept item was a climate-finance brief, not CleanTechnica original content.
+- Carbon Brief, The Guardian, Grist, Yale, Canary Media, Dialogue Earth: all 0 new items this run (full dedup against prior runs).
+- Euractiv (EU), DeSmog: still 0 fetched, 6 consecutive cloud runs.
+
+**Tuning applied:**
+- None (conservative; pending interactive confirmation from prior proposals).
+
+**Proposed for next interactive run (cumulative):**
+- Remove CleanTechnica: 101 fetched, 2 kept (2%) across 6 runs.
+- Remove Grist: 31 fetched, 0 kept (0%) across 6 runs.
+- Raise Electrek effective significance floor to 73: 110 fetched, 8 kept (7%), confirmed consumer-product dominance.
+- Validate Euractiv and DeSmog from residential IP: 0 fetched for 6 straight cloud runs is structural.
+- Consider Canary Media tier-1 promotion: consistent 30% keep rate; best US investor-lens source.
+
+---
+
 ## 2026-09-25 — Run 5
 
 **What dominated today:**

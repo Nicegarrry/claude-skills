@@ -1,86 +1,86 @@
 {
   "Carbon Brief": {
-    "runs": 5,
-    "fetched": 9,
+    "runs": 6,
+    "fetched": 10,
     "kept": 4,
-    "last": "2026-09-25"
+    "last": "2026-09-27"
   },
   "Inside Climate News": {
-    "runs": 5,
-    "fetched": 31,
-    "kept": 2,
-    "last": "2026-09-25"
+    "runs": 6,
+    "fetched": 38,
+    "kept": 3,
+    "last": "2026-09-27"
   },
-  "The Guardian \u2014 Environment": {
-    "runs": 5,
-    "fetched": 36,
+  "The Guardian — Environment": {
+    "runs": 6,
+    "fetched": 43,
     "kept": 2,
-    "last": "2026-09-25"
+    "last": "2026-09-27"
   },
   "Grist": {
-    "runs": 5,
-    "fetched": 27,
+    "runs": 6,
+    "fetched": 31,
     "kept": 0,
-    "last": "2026-09-25"
+    "last": "2026-09-27"
   },
   "Yale Environment 360": {
-    "runs": 5,
-    "fetched": 9,
+    "runs": 6,
+    "fetched": 10,
     "kept": 1,
-    "last": "2026-09-25"
+    "last": "2026-09-27"
   },
   "Canary Media": {
-    "runs": 5,
-    "fetched": 27,
+    "runs": 6,
+    "fetched": 30,
     "kept": 8,
-    "last": "2026-09-25"
+    "last": "2026-09-27"
   },
   "CleanTechnica": {
-    "runs": 5,
-    "fetched": 86,
-    "kept": 1,
-    "last": "2026-09-25"
+    "runs": 6,
+    "fetched": 101,
+    "kept": 2,
+    "last": "2026-09-27"
   },
   "PV Magazine": {
-    "runs": 5,
-    "fetched": 40,
-    "kept": 11,
-    "last": "2026-09-25"
+    "runs": 6,
+    "fetched": 50,
+    "kept": 14,
+    "last": "2026-09-27"
   },
   "Utility Dive": {
-    "runs": 5,
-    "fetched": 30,
-    "kept": 7,
-    "last": "2026-09-25"
+    "runs": 6,
+    "fetched": 33,
+    "kept": 8,
+    "last": "2026-09-27"
   },
   "Electrek": {
-    "runs": 5,
-    "fetched": 92,
-    "kept": 7,
-    "last": "2026-09-25"
+    "runs": 6,
+    "fetched": 110,
+    "kept": 8,
+    "last": "2026-09-27"
   },
   "RenewEconomy (AU)": {
-    "runs": 5,
-    "fetched": 38,
-    "kept": 22,
-    "last": "2026-09-25"
+    "runs": 6,
+    "fetched": 48,
+    "kept": 28,
+    "last": "2026-09-27"
   },
   "Euractiv (EU)": {
-    "runs": 5,
+    "runs": 6,
     "fetched": 0,
     "kept": 0,
-    "last": "2026-09-25"
+    "last": "2026-09-27"
   },
   "Dialogue Earth (Asia / global south)": {
-    "runs": 5,
+    "runs": 6,
     "fetched": 10,
     "kept": 2,
-    "last": "2026-09-25"
+    "last": "2026-09-27"
   },
   "DeSmog": {
-    "runs": 5,
+    "runs": 6,
     "fetched": 0,
     "kept": 0,
-    "last": "2026-09-25"
+    "last": "2026-09-27"
   }
 }
