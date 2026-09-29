@@ -28,7 +28,14 @@ Every tool returns `{ ok: true, ... }` or `{ ok: false, reason }`; nothing throw
 | `worker_stop` | Stop a running worker. |
 | `gate_run` | Run the repo's checks at the worker's exact head. |
 | `pr_open` | Push and open a PR — refused unless a gate passed at the current head. |
-| `review_request` | Spawn a read-only reviewer on the PR head; it posts its verdict as a PR comment. |
+| `review_request` | Spawn a read-only reviewer on the PR head (needs an explicit `model`). For Claude reviews run outside Helm, use `review_record`. |
+| `review_record` | Record a posted review comment (`APPROVE: ` / `REQUEST_CHANGES: ` last line) at the PR head; `pr_merge` requires an approving one. |
+| `gate_baseline` | Record a validator's red acceptance test (gate-first). Builders spawned with `baselineId` must turn it green without editing it. |
+| `claims_check` | Jev checks the builder's claims against its diff; blocks merge in block mode. |
+| `worker_retry` | Steer the same session with the named violation and its evidence (gate, acceptance, claims, review, tests_edited, conflict); capped per kind. |
+| `jev_check` | Jev presets for skills: `issue` (testable, too_big, complexity), `dedupe`, `verdict`, `raw`. |
+| `envelope_get` / `tap_request` | Read the project's autonomy envelope; request a one-time human approval code for an out-of-envelope action. |
+| `memory_write` / `memory_log` / `memory_list` | Project memory in Common Ground page shape (local mirror + outbox until CG sync is on). |
 | `pr_status` | Mergeability, checks and reviews from GitHub. |
 | `pr_merge` | Merge — only when open, not draft, mergeable, all checks green, head matches. |
 | `run_status` | Spend against the cap, active workers. |

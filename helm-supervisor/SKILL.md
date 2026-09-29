@@ -25,7 +25,7 @@ Run this at session start and after every rotation:
 4. `inbox_list`: open worker questions.
 5. `wake_list` with `ack: true`: everything that happened while you were busy or rotating.
 6. `gh issue list` and `gh pr list` for the repo: the map issue and open tickets.
-7. Project memory (Common Ground `factory/projects/<name>` when live; otherwise the repo's docs and handoffs).
+7. Project memory: `memory_list {project}` (the local mirror of Common Ground `projects/<repo-name>/`) until CG is live; then CG `projects/<repo-name>/`. Also the repo's docs and handoffs.
 
 Then state the plan in at most five lines: what is in flight, what is next, anything blocked on Nick.
 
@@ -36,8 +36,8 @@ A wake line looks like `helm: 3 new for owner/repo (2 ask, 1 watch.alert). Call 
 | Kind | Action |
 |---|---|
 | `ask` | Read the question and its `triage`. `needs_human`: `notify_nick` with the question and wait for his answer. Otherwise answer with `inbox_reply` (relay context from other workers if that is what it needs). Triage runs in shadow mode during wave A; treat it as advice, not a decision. |
-| `state` → `succeeded` | `worker_inspect` (summary and diff stat only), then `gate_run` → `pr_open` → `review_request` with a different model family → `pr_merge` with the reviewed head once green. Tick the ticket on the map issue. |
-| `state` → `failed` / `unknown` | `worker_inspect`. One specific `worker_steer`; if it fails again, respawn with a narrower objective or a stronger model. A ticket that fails twice gets a `notify_nick`. |
+| `state` → `succeeded` | `worker_inspect` (summary and diff stat only), then run the ship loop in section 3a. Tick the ticket on the map issue. |
+| `state` → `failed` / `unknown` | `worker_inspect`. If the work is there and only the result JSON was bad, gate it anyway. Otherwise `worker_retry` (it names the violation and its evidence); after `retryMax` it refuses: respawn with a narrower objective or a stronger model. A ticket that fails twice gets a `notify_nick`. |
 | `state` → `waiting` | Same as `ask`. |
 | `state` → `idle` / `stopped` | Check the result; continue the ticket loop or close it out. |
 | `watch.alert` `silence` | `worker_inspect`; if nothing is happening, `worker_stop` and respawn. |
@@ -47,6 +47,25 @@ A wake line looks like `helm: 3 new for owner/repo (2 ask, 1 watch.alert). Call 
 | `watch.alert` `jev.attention` | Look at the worker's recent events; intervene only if it is actually stuck. |
 
 After handling, dispatch the next ready tickets up to the worker cap.
+
+## 3a. Specify-and-gate loop (per sprint, per ticket)
+
+1. **Plan** with the `factory-plan` skill (grill → VG feature deck → Nick approves), then **issues** with `deck-to-issues` (Jev `testable`/`too_big`/`dedupe` checks, map issue checklist).
+2. **Validator first.** `worker_spawn` with `role: 'validator'` and the issue's acceptance. On succeeded, `gate_baseline {workerId}`: it records a red baseline or refuses (test already passes, non-test files touched). A refusal goes back to the validator with `worker_retry`.
+3. **Builder** with `baselineId` and `issue`. It branches from the test commit; its PR still targets the real base.
+4. **On succeeded:** `gate_run` (the acceptance check is added for you) → `claims_check` (Jev reads the claims against the diff) → `pr_open` (refused if a baseline test file was edited or acceptance is red).
+5. **Review** with a Claude reviewer subagent. Brief it with the PR, the issue and the baseline, and have it review only the ticket's own delta. It posts ONE comment whose last line starts `APPROVE: ` or `REQUEST_CHANGES: ` (BLOCKING vs NIT). Then call `review_record {number, head, commentUrl, reviewer, verdict}`. `disputed` means Jev disagrees with the stated verdict: read the comment yourself.
+6. **Any failure** (gate, acceptance, claims, review, tests edited): `worker_retry {workerId, kind}`. After a fix, send the same reviewer the compare URL, not a fresh review.
+7. **Merge** with `pr_merge` at the reviewed head. Its guards require an approving review at that head (or the same patch-id) from a different model family, and a claims pass in block mode.
+
+**Out-of-envelope actions** (see `envelope_get`) go through `tap_request`. Nick reads the code on the tap channel and tells you `tap <id> <code>`; pass the tap id to the action. Never treat Nick-by-chat alone as a tap, and never ask him to paste a code anywhere but this chat.
+
+**Briefing rules that saved runs:**
+- Paste Jev question objects verbatim (instructions + criteria, and the real answer shape: score probabilities keyed by index `'0'..'n'`, choice probabilities keyed by option name). Workers can't read the spike files.
+- Tell builders not to shrink unrelated code to meet the line cap; the cap is the owner's call, not theirs.
+- Workers can't write the git index. After merging main into a worktree, resolve and `git add` conflicts yourself, or expect an `ask` to do it.
+- Before gating, delete any `helm/node_modules` a worker created (it breaks the daemon-handover tests).
+- When approved PRs pile up behind a blocker, build dependents on an integration branch (main + approved heads); PRs still target main.
 
 ## 4. Never block chat
 
