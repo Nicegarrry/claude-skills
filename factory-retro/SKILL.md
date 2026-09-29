@@ -51,7 +51,7 @@ For each lesson that should change a skill (briefing rule, review checklist, sup
 
 1. `worker_spawn` a Codex worker (`codex/gpt-5.6-luna:medium`) on the skills repo, objective = the lesson plus the exact skill file and section to edit; keep the edit under 15 lines.
 2. Claude review (Agent tool, opus): ONE comment, last line `APPROVE: ` / `REQUEST_CHANGES: `; then `review_record`.
-3. Merging a skill is tap-only (`skill.merge`): `tap_request {project, kind: 'skill.merge', action: 'merge skills PR #N: <lesson>'}`. Merge only after Nick sends `tap <id> <code>` in chat and the tap is confirmed.
+3. Merging a skill is tap-only (`skill.merge`): `tap_request {project, kind: 'skill.merge', action: 'gh pr merge <N> -R <skills repo>'}`. When Nick sends `tap <id> <code>`, `tap_confirm {id, code}`; then run exactly that merge once and note the tap id in the PR comment. No tap, no merge.
 
 ## Rules
 

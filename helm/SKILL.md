@@ -37,6 +37,10 @@ Every tool returns `{ ok: true, ... }` or `{ ok: false, reason }`; nothing throw
 | `envelope_get` / `tap_request` | Read the project's autonomy envelope; request a one-time human approval code for an out-of-envelope action. |
 | `memory_write` / `memory_log` / `memory_list` | Project memory in Common Ground page shape (local mirror + outbox until CG sync is on). |
 | `pr_status` | Mergeability, checks and reviews from GitHub. |
+| `merge_enqueue` / `merge_queue` / `merge_dequeue` | Ordered merges: base merged in, re-gated, re-reviewed if the interdiff changed. |
+| `envelope_check` / `tap_confirm` | Decide allow / tap / never for an external action; confirm Nick's one-time code. |
+| `jev_label` / `scorecard_export` | Label Jev calls with real outcomes; export the sprint scorecard. |
+| `deploy_run` / `deploy_status` / `deploy_rollback` | Deploys with smoke checks and rollback (Helm v4 C2a). |
 | `pr_merge` | Merge — only when open, not draft, mergeable, all checks green, head matches. |
 | `run_status` | Spend against the cap, active workers. |
 
@@ -51,14 +55,16 @@ Every tool returns `{ ok: true, ... }` or `{ ok: false, reason }`; nothing throw
    ids to wake on whichever settles first. Never loop on `worker_inspect`.
 4. **Judge the result** from `worker_inspect` — the worker's own summary and diff stat, not the
    full diff. Wrong or incomplete → `worker_steer` with a specific correction.
-5. **Gate** with `gate_run`. A red gate goes back to the worker via `worker_steer` with the
-   failing check named.
+5. **Gate** with `gate_run`, then `claims_check`. A red gate or flagged claims go back via
+   `worker_retry {workerId, kind}` (it names the violation and evidence; capped per kind).
 6. **PR** with `pr_open` once the gate is green at the current head.
-7. **Review** with `review_request` on a *different model family* from the builder (the tool
-   refuses same-family by default — keep it that way). Treat BLOCKING findings as a steer
-   back to the builder, then re-gate and re-review.
-8. **Merge** with `pr_merge`, passing the head SHA you reviewed. Check `pr_status` first if
-   anything is pending.
+7. **Review** on a *different model family* from the builder: `review_request` (Helm spawns
+   a reviewer), or your own reviewer subagent that posts one comment ending `APPROVE: ` /
+   `REQUEST_CHANGES: `. Either way, `review_record` the comment at the PR head; merges need
+   it. BLOCKING findings → `worker_retry {kind: 'review'}`, re-gate, re-review.
+8. **Merge** with `merge_enqueue` (the queue merges base in, re-gates, and calls `pr_merge` at
+   the reviewed head), or `pr_merge` directly with that head if the project has no queue.
+   Check `pr_status` first if anything is pending.
 
 Run independent tickets in parallel up to the worker cap; keep dependent ones in sequence.
 
