@@ -25,7 +25,7 @@ Run this at session start and after every rotation:
 4. `inbox_list`: open worker questions.
 5. `wake_list` with `ack: true`: everything that happened while you were busy or rotating.
 6. `gh issue list` and `gh pr list` for the repo: the map issue and open tickets.
-7. Project memory: `memory_list {project}` (the local mirror of Common Ground `projects/<repo-name>/`) until CG is live; then CG `projects/<repo-name>/`. Also the repo's docs and handoffs.
+7. Project memory: `memory_list {project}` (lessons, scorecards, decisions; the local mirror of Common Ground `projects/<repo-name>/`) until CG is live, then CG `projects/<repo-name>/` directly. Apply active lessons when briefing workers. Also the repo's docs and handoffs.
 
 Then state the plan in at most five lines: what is in flight, what is next, anything blocked on Nick.
 
@@ -66,6 +66,16 @@ After handling, dispatch the next ready tickets up to the worker cap.
 - Workers can't write the git index. After merging main into a worktree, resolve and `git add` conflicts yourself, or expect an `ask` to do it.
 - Before gating, delete any `helm/node_modules` a worker created (it breaks the daemon-handover tests).
 - When approved PRs pile up behind a blocker, build dependents on an integration branch (main + approved heads); PRs still target main.
+
+## 3b. After each sprint
+
+When the sprint budget closes (`budget_close`, or a `budget.closed` event):
+
+1. **Scorecard:** `scorecard_export {project, budgetId}` (Helm also writes it on close; a `scorecard.failed` event means run it by hand).
+2. **Retro:** the `factory-retro` skill (at most 5 lessons, Jev labels, skill PRs behind a `skill.merge` tap).
+3. **Delivery deck:** the `delivery-deck` skill, for Nick's review in VG.
+
+Lessons land in project memory (`memory_list {project, type: 'lesson'}`); the startup read order picks them up next session. Until Common Ground sync is enabled they live in the local mirror and the outbox; nothing is lost when it goes live.
 
 ## 4. Never block chat
 
