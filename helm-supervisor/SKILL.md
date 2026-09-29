@@ -56,7 +56,7 @@ After handling, dispatch the next ready tickets up to the worker cap.
 4. **On succeeded:** `gate_run` (the acceptance check is added for you) → `claims_check` (Jev reads the claims against the diff) → `pr_open` (refused if a baseline test file was edited or acceptance is red).
 5. **Review** with a Claude reviewer subagent. Brief it with the PR, the issue and the baseline, and have it review only the ticket's own delta. It posts ONE comment whose last line starts `APPROVE: ` or `REQUEST_CHANGES: ` (BLOCKING vs NIT). Then call `review_record {number, head, commentUrl, reviewer, verdict}`. `disputed` means Jev disagrees with the stated verdict: read the comment yourself.
 6. **Any failure** (gate, acceptance, claims, review, tests edited): `worker_retry {workerId, kind}`. After a fix, send the same reviewer the compare URL, not a fresh review.
-7. **Merge** with `pr_merge` at the reviewed head. Its guards require an approving review at that head (or the same patch-id) from a different model family, and a claims pass in block mode.
+7. **Merge** with `merge_enqueue` (section 3a+); it ends in `pr_merge` at the reviewed head. Its guards require an approving review at that head (or the same patch-id) from a different model family, and a claims pass in block mode.
 
 **Out-of-envelope actions** (see `envelope_get`) go through `tap_request`. Nick reads the code on the tap channel and tells you `tap <id> <code>`; pass the tap id to the action. Never treat Nick-by-chat alone as a tap, and never ask him to paste a code anywhere but this chat.
 
@@ -66,6 +66,30 @@ After handling, dispatch the next ready tickets up to the worker cap.
 - Workers can't write the git index. After merging main into a worktree, resolve and `git add` conflicts yourself, or expect an `ask` to do it.
 - Before gating, delete any `helm/node_modules` a worker created (it breaks the daemon-handover tests).
 - When approved PRs pile up behind a blocker, build dependents on an integration branch (main + approved heads); PRs still target main.
+
+## 3a+. Merge queue, deploys and the guard
+
+- **Merge through the queue.** After an approving `review_record`, call `merge_enqueue {number, project}` instead of `pr_merge`. The queue merges base into the PR, re-gates, and merges in order.
+- **Queue wakes:**
+
+  | Wake | Action |
+  |---|---|
+  | `queue.review` | The interdiff changed (patch-id differs). Send the same reviewer the compare URL; after a new approving `review_record`, the queue continues. |
+  | `queue.failed` (conflict) | The queue already sent the worker a conflict retry. If the retry cap is hit, resolve and stage the conflict yourself in the worker's worktree, or `merge_dequeue` and respawn. |
+  | `queue.failed` (gate, other) | `worker_retry` with the named kind, or dequeue and fix. |
+  | `queue.merged` | Tick the ticket on the map issue. |
+
+- **Deploys:** `deploy_run {project, target, sha?}`. Preview targets deploy any sha; others only a sha on the base branch. `deploy_status {project}` for history.
+
+  | Wake | Action |
+  |---|---|
+  | `deploy.failed` | Read the redacted reason (`deploy_status {id}`). Fix forward via a worker, or `deploy_rollback {id}` if rollback was manual. |
+  | `deploy.rolledback` | Smoke failed and Helm rolled back. Open a ticket with the failing smoke check; don't redeploy until it's fixed. |
+
+- **Guard before any external action.** Before anything outside the repo (deploys to non-preview targets, publishing a VG deck, messages to people, dependency major bumps, skill merges), call `envelope_check {project, actions: ['<exact action>'], kind}`.
+  - `allow`: go ahead.
+  - `tap`: `tap_request {project, kind, action}` with the same action string. Tell Nick in chat that a code is on the tap channel. When he replies `tap <id> <code>`, call `tap_confirm {id, code}` and pass `tapId` to the action. A tap is single-use and bound to that exact action.
+  - `never`: don't. Tell Nick if it blocks the sprint.
 
 ## 3b. After each sprint
 
