@@ -40,7 +40,7 @@ Every tool returns `{ ok: true, ... }` or `{ ok: false, reason }`; nothing throw
 | `merge_enqueue` / `merge_queue` / `merge_dequeue` | Ordered merges: base merged in, re-gated, re-reviewed if the interdiff changed. |
 | `envelope_check` / `tap_confirm` | Decide allow / tap / never for an external action; confirm Nick's one-time code. |
 | `jev_label` / `scorecard_export` | Label Jev calls with real outcomes; export the sprint scorecard. |
-| `deploy_run` / `deploy_status` / `deploy_rollback` | Deploys with smoke checks and rollback (Helm v4 C2a). |
+| `deploy_run` / `deploy_status` / `deploy_rollback` | Deploys with smoke checks and rollback (Helm v4 C2a; only if present in your tool list). |
 | `pr_merge` | Merge — only when open, not draft, mergeable, all checks green, head matches. |
 | `run_status` | Spend against the cap, active workers. |
 

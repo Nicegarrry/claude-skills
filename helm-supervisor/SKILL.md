@@ -79,7 +79,7 @@ After handling, dispatch the next ready tickets up to the worker cap.
   | `queue.failed` (gate, other) | `worker_retry` with the named kind, or dequeue and fix. |
   | `queue.merged` | Tick the ticket on the map issue. |
 
-- **Deploys** (Helm v4 C2a; if `deploy_run` is not in your tool list, the daemon predates it: deploy by hand only with Nick's go-ahead): `deploy_run {project, target, sha?, tapId?}`. Preview targets deploy any sha; others only a sha on the base branch. `deploy_status {project}` for history.
+- **Deploys** (Helm v4 C2a; if `deploy_run` is not in your tool list, the daemon predates it: deploy by hand only after `envelope_check` on the exact deploy command and, on `tap`, a confirmed tap): `deploy_run {project, target, sha?, tapId?}`. Preview targets deploy any sha; others only a sha on the base branch. `deploy_status {project}` for history.
 
   | Wake | Action |
   |---|---|
@@ -88,7 +88,7 @@ After handling, dispatch the next ready tickets up to the worker cap.
 
 - **Guard before any external action.** Before anything outside the repo (deploys to non-preview targets, publishing a VG deck, messages to people, dependency major bumps, skill merges), call `envelope_check {project, actions: ['<exact action>'], kind}`.
   - `allow`: go ahead.
-  - `tap`: `tap_request {project, kind, action}` with the same action string. Tell Nick in chat that a code is on the tap channel. When he replies `tap <id> <code>`, call `tap_confirm {id, code}`. Tools that take a `tapId` (`budget_open`, `deploy_run`, `deploy_rollback`) get it passed and consume it themselves. For actions with no `tapId` input (merging a skills PR with `gh pr merge`, `vg_publish_deck`), a confirmed tap is your go-ahead to perform that exact action once; record the tap id in the PR comment or map issue. A tap is single-use and bound to that exact action string.
+  - `tap`: `tap_request {project, kind, action}` with the same action string. Tell Nick in chat that a code is on the tap channel. When he replies `tap <id> <code>`, call `tap_confirm {id, code}`. Tools that take a `tapId` (`budget_open`, `deploy_run`, `deploy_rollback`) get it passed and consume it themselves. For actions with no `tapId` input (merging a skills PR with `pr_merge`, `vg_publish_deck`), a confirmed tap is your go-ahead to perform that exact action once; record the tap id in the PR comment or map issue. A tap is single-use and bound to that exact action string.
   - `never`: don't. Tell Nick if it blocks the sprint.
 
 ## 3b. After each sprint
