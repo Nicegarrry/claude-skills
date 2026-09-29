@@ -39,8 +39,10 @@ helm jev check --preset issue --file drafts/<slug>.md --json
 
 ```
 gh issue list --state open --limit 200 --json number,title,body > open.json
-helm jev check --preset dedupe --file <{candidate, against}> --json
+helm jev check --preset dedupe --file dedupe-<slug>.json --json
 ```
+
+where `dedupe-<slug>.json` is `{"candidate": "<draft text>", "against": [{"number", "title", "body"}, ...]}` (Helm truncates each to 3,000 chars and runs one Jev call per pair).
 
 Pass at most 40 open issues per call (the most recent, plus any whose title shares a word with the draft).
 
