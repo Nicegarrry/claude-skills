@@ -15,6 +15,7 @@ reads) and `README.md` (for humans).
 | [`session-handoff`](./session-handoff) | `/wrap` before you `/clear` and the live agent writes a per-project handoff (what was done · next · gotchas · key files); a `SessionStart` hook auto-injects it into the next session, with a headless `SessionEnd` fallback if you forget. Run `./session-handoff/install.sh` to wire up the hooks. |
 | [`feedback-addressing`](./feedback-addressing) | Work through reviewer feedback on a Word `.docx` (or PowerPoint `.pptx`) end-to-end — extract comments + dot-points, tier P1/P2/P3, research cited-evidence gaps, apply native Word track-changes, and produce an internal audit table plus a reviewer-facing email reply. Drafts only; never auto-sends. Ships Python helpers + smoke tests. |
 | [`helm`](./helm) | Thin how-to for the [Helm MCP server](https://github.com/Nicegarrry/helm3): dispatch coding work to cheap worker agents in their own worktrees, then gate, PR, cross-family review and merge — the orchestration loop and the rules that keep long runs cheap. Harness lives in `helm3`. |
+| [`qubit-ink`](./qubit-ink) | Qubit Studio design system (woodblock + sumi ink on cool paper): tokens, component recipes, scroll-drawn ink and motion patterns, woodblock marks and fonts, distilled from qubitstudio.app and the VG landing. Pairs with the VG style "Qubit Ink". |
 
 ## Installing a skill
 
