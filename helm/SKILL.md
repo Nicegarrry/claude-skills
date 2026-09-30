@@ -13,6 +13,15 @@ The harness itself (install, daemon, dashboard, configuration) is documented in 
 [helm3 repo](https://github.com/Nicegarrry/helm3) — read `helm/README.md` there if the tools
 are missing or misbehaving. This skill covers only how to *use* them well.
 
+## Tool profiles (keep context small)
+
+Helm's MCP exposes a small **core** set by default: `worker_spawn`, `worker_steer`, `worker_inspect`, `inbox_reply`, `wake_list`, `gate_run`, `pr_open`, `run_status`, plus two meta tools:
+
+- `helm_help {}`: one-line index of every Helm tool; `helm_help {tool: "pr.merge"}`: that tool's full input schema.
+- `helm_call {tool: "<dotted.name>", input: {...}}`: call any Helm tool with the same validation, guards and taps as a direct call.
+
+Everything in the table below that isn't in core is reached with `helm_call` (e.g. `helm_call {tool: "merge.enqueue", input: {number: 12, project: "owner/repo"}}`). Don't ask for the `all` profile to get direct tools; that defeats the point. Responses are compact by default; pass `verbose: true` only when you need the detail.
+
 ## The tools
 
 Every tool returns `{ ok: true, ... }` or `{ ok: false, reason }`; nothing throws. Read the
