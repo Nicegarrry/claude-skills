@@ -33,7 +33,27 @@ The Qubit Studio design system: a woodblock-and-sumi print on cool paper. Prussi
 | Sumi spots, ink rail, washes, hero film, docking brand | `references/ink-and-motion.md` |
 | Decks, docs and emails in this style | `references/decks-and-docs.md` (VG style "Qubit Ink") |
 | Where the live code and generators are | `references/sources.md` |
+| Live, browsable system (tokens, 17 animated components, icons, films) | Claude Design System "Qubit Ink": https://claude.ai/artifact/9GBg6sHEFg82BQL6CD4uMS |
+| Icon and painting assets already in VG | `references/vg-assets.md` |
 | Fonts (OFL) and paper grain | `assets/fonts/`, `assets/paper.svg` |
+
+## External skills for the art and animation
+
+The ink art and motion were made with these skills. Load them before drawing anything new; don't improvise art by hand or with an image generator.
+
+- **anidoodle** (Alex Greenshpun, Apache-2.0, github.com/alexgreensh/anidoodle) is the art-as-code engine behind every painting, brush icon, wash and hero film. **Install:** in Claude Code run `/plugin marketplace add alexgreensh/anidoodle`, then `/plugin install anidoodle@alexgreensh-anidoodle`; in Codex run `codex plugin marketplace add alexgreensh/anidoodle`, then install from `/plugins`. **Read:**
+  - `references/styles/sumiE.md` for spots, icons and the rail.
+  - `references/styles/woodcut.md` for the nishiki-e hero film.
+  - `references/workflows/interactive.md` for scroll-drawn hosts.
+  - `references/craft-bar.md` for the review bar.
+  - Engine sources worth reading (not vendoring): `engine/src/canvas-core/{sumiE,sumiEKit,woodcut,woodcutKit}.ts` and `engine/src/hosts/interactive.ts`.
+  - Keep a `NOTICE` crediting it beside any generated art.
+- **frontend-design** (`frontend-design:frontend-design`) covers page composition when a layout goes beyond `references/components.md`.
+- **Repo generators** (the Qubit implementations of the anidoodle recipes):
+  - qubit-site `scripts/ink/{sumi,sumi-render,sumi-check,paper,hero-*}.mjs` for spots, washes, rail, grain and the woodblock film.
+  - VG `scripts/landing-ink/sumi.mjs` for brush icons and washes.
+  - VG `scripts/landing-film/` for the "pls fix" film.
+  - `references/ink-and-motion.md` has the rules.
 
 ## Building a new page
 

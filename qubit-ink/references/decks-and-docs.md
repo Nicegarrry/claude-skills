@@ -2,7 +2,8 @@
 
 ## VG decks
 
-- VG style **"Qubit Ink"**: `styleId mh7e9taa9zvm84kft6xwf0dnz58fdq7g` (v1, not the workspace default). Pass `styleId` on `vg_push_deck`, or pick "Qubit Ink" in VG's Styles tab.
+- VG style **"Qubit Ink"**: `styleId mh7e9taa9zvm84kft6xwf0dnz58fdq7g` (v12, not the workspace default). It carries 3 logos, 7 brush icons (phone, link, pin, versions, partners, founders, consultants) and 4 spot paintings (workshop, advisory, vg, stat).
+- **VG library:** all 33 brush icons, spots and washes are tagged `qubit-ink` + `sumi` + the subject. Find them with `vg_search_library({ query: "qubit-ink", kind: "asset" })`. Ids and urls are in `references/vg-assets.md`. Use a brush icon at 56 to 110px beside a slide heading, and a spot as the one illustration on a section-opener slide. They are static in decks. Pass `styleId` on `vg_push_deck`, or pick "Qubit Ink" in VG's Styles tab.
 - It carries the palette (paper bg, navy ink, sapphire accent, rust signal), Shippori Mincho B1 as `--font-serif`, Hanken Grotesk as sans, the QS logos, deck rules and 3 exemplars (cover, big stat, 01/02/03 offers). Sample deck: `jh7cjgpz9mb7z3xknerfzdy5qd8fdhrd`.
 - Use the compiled CSS variables (`--bg`, `--ink`, `--accent`, `--rust`, `--font-serif`). Never hard-code the hex values in slides.
 - Slide craft in ink:

@@ -84,6 +84,16 @@ Usage (React): `<span class="qi-inked">signed off<Brush className="qi-under" d="
 - Button arrow: `translateX(3px)` on hover. Pin drop: `cubic-bezier(.3,1.5,.6,1)` .38s. Seal stamp: `scale(1.7)` → 1 at −9°, `cubic-bezier(.3,1.4,.5,1)` .45s. Changed region: a `#dbe8f3` flash fading out over 1.8s.
 - Easing: `--qi-ease` (.2,.8,.2,1) for UI and `--qi-ease-brush` (.6,.05,.25,1) for strokes.
 
+## Tools
+
+- **anidoodle skill** (github.com/alexgreensh/anidoodle). See "External skills" in SKILL.md for the install lines and which references to read for each medium (`styles/sumiE.md`, `styles/woodcut.md`, `workflows/interactive.md`, `craft-bar.md`). Its tools are:
+  - `tools/still.mjs` for stills
+  - `tools/render.mjs` for loops and films
+  - `tools/emit.mjs` for a single offline HTML file
+  - `tools/gate.mjs` for determinism and dead air
+  - `tools/verify-export.mjs` to decode the shipped file
+- **Reference implementation** of every effect on this page, vanilla and dependency-free: `components/bundle.js` (`window.QubitInk`) in the Claude Design System "Qubit Ink" (https://claude.ai/artifact/9GBg6sHEFg82BQL6CD4uMS). Each component there has a live preview.
+
 ## Provenance
 
 The art is original and code-drawn, with guidance from the anidoodle skill (Alex Greenshpun, Apache-2.0). No engine source is vendored. Keep a `NOTICE` next to the generated art, as `public/ink/NOTICE` does.

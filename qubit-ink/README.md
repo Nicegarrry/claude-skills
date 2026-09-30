@@ -24,8 +24,11 @@ references/sources.md        live code, generators, screenshots, known divergenc
 ## Also recorded in
 
 - **VG:** style "Qubit Ink" (`mh7e9taa9zvm84kft6xwf0dnz58fdq7g`) for decks and docs.
+- **Claude Design System:** "Qubit Ink", https://claude.ai/artifact/9GBg6sHEFg82BQL6CD4uMS. It holds the live tokens, 17 animated component previews, the brush icons, paintings and films, and the ink engine.
 - **Common Ground:** `team/concept/qubit-ink-design-system`.
 
 ## Changelog
+
+- **v1.1 (2026-10-01):** adds a pointer to the external skill (anidoodle) with install lines and references, and the repo generators. The VG style is now v12 with the brush icons and spots, and 33 ink assets are in the VG library. Adds the Claude Design System.
 
 - **v1 (2026-10-01):** first cut. It covers tokens, components, ink/motion and marks from homepage PR #42 and VG PR #467. It also sets up the VG style v1. Rust is standardised on `#b0552e`. After a fresh-agent test build, it adds a scoped reset, bundled Hanken, `.qi-subhead`, `.qi-cta-row`, `.qi-facts` and `.qi-cols`, a rust-per-screen rule, a no-film hero fallback and a vanilla brush script.
