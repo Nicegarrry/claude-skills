@@ -14,7 +14,7 @@ The Qubit Studio design system: a woodblock-and-sumi print on cool paper. Prussi
 1. **Paper:** `#f6f8fb` with the `paper.svg` grain. Light only; ignore saved dark preferences (`color-scheme: light`, `data-theme="light"`).
 2. **Ink:** headings and marks in navy `#132a45`; body `#36495e`; meta `#566a80`.
 3. **Sapphire `#306fa8` is the one accent:** eyebrows, links, focus rings, active state, one inked word.
-4. **Rust `#b0552e` is the seal.** One per view: the primary CTA, a stat numeral or a stamp. Never for body text, borders or decoration.
+4. **Rust `#b0552e` is the seal.** Allow one rust moment per screenful (viewport), such as the primary CTA, a stat numeral or a stamp. Across a page, rust may appear several times as long as no two rust moments share a screen. The Q mark's sun does not count. On the navy close band, a rust brush stroke above the rust CTA counts as one moment. Never use rust for body text, links, borders or decoration.
 5. **Type:** Shippori Mincho B1 500 for display (big, tight, `-0.012em` to `-0.02em`), Hanken Grotesk for everything else. Eyebrows are 12px, 600, uppercase, `.15em` tracking, sapphire.
 6. **Structure comes from hairlines** (`1px #cfd8e3`): a rule on top of each section and between columns. No cards, shadows, gradients or rounded boxes. Radius 2px, and buttons are hand-cut at `2px 1px 3px 1px`.
 7. **Rhythm:** max 1440, gutter `clamp(20px,5.55vw,80px)`, sections ~104px tall padding, alternate sections on the `#e9eff6b3` band, close on a navy band.
@@ -37,7 +37,7 @@ The Qubit Studio design system: a woodblock-and-sumi print on cool paper. Prussi
 
 ## Building a new page
 
-1. Copy `assets/tokens.css`, the fonts and `paper.svg` into the app. Scope the page under `.qi`.
+1. Copy `assets/tokens.css`, `assets/fonts/*` (Shippori and Hanken, both OFL) and `paper.svg` into the app. Scope the page under `.qi`. The file includes a scoped reset, so do not add another one.
 2. Lay out from `references/components.md`. Order: nav → hero (headline plus film or art) → one proof moment (stat or demo) → 2–3 sections separated by rules and a band → navy close → footer.
 3. Choose **one** rust moment per view. Then give each section **one** ink gesture: a spot painting, a brush underline or a wash.
 4. Write copy last, to the voice rule. Keep each headline to one idea and 4–8 words.
@@ -55,4 +55,4 @@ The Qubit Studio design system: a woodblock-and-sumi print on cool paper. Prussi
 
 ## Iterating the system
 
-This is v1 (2026-10-01), distilled from the homepage (#42) and VG landing v2 (#467). When a new page changes a token or pattern, update `tokens.css` and the relevant reference file here, bump the changelog in `README.md`, and update the VG style and the Common Ground page (`team/qubit-ink-design-system`) so all three stay in step.
+This is v1 (2026-10-01), distilled from the homepage (#42) and VG landing v2 (#467). When a new page changes a token or pattern, update `tokens.css` and the relevant reference file here, bump the changelog in `README.md`, and update the VG style and the Common Ground page (`team/concept/qubit-ink-design-system`) so all three stay in step.

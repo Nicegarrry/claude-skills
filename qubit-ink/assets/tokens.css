@@ -2,12 +2,14 @@
    Qubit Ink — tokens + base primitives (v1, 2026-10-01)
    Source of truth: qubitstudio.app ink homepage + vg.qubitstudio.app landing v2.
    Drop into a route-level stylesheet and scope under .qi (or rename the scope).
-   Light only. Copy fonts from ../assets/fonts to /fonts/ in the app's public dir.
+   Light only. Copy assets/fonts/* to /fonts/ and assets/paper.svg to /ink/ in the
+   app's public dir. For a static HTML file, rewrite those two URL prefixes to
+   relative paths (./fonts/, ./paper.svg).
    ========================================================================== */
 
 @font-face { font-family: "Shippori Mincho B1"; src: url("/fonts/ShipporiMinchoB1-500-latin.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
 @font-face { font-family: "Shippori Mincho B1"; src: url("/fonts/ShipporiMinchoB1-700-latin.woff2") format("woff2"); font-weight: 700; font-style: normal; font-display: swap; }
-/* Hanken Grotesk: self-host (qubit-site public/fonts/HankenGrotesk.ttf) or Google Fonts. */
+@font-face { font-family: "Hanken Grotesk"; src: url("/fonts/HankenGrotesk.ttf") format("truetype"); font-weight: 100 900; font-style: normal; font-display: swap; }
 
 .qi {
   /* ---- paper ---- */
@@ -56,6 +58,14 @@
   font: 400 17px/1.6 var(--qi-body);
   overflow-x: clip;
 }
+/* ---- reset (scoped; zero-specificity so components always win) ---- */
+.qi *, .qi *::before, .qi *::after { box-sizing: border-box; }
+.qi :where(h1, h2, h3, h4, p, ul, ol, dl, dd, figure) { margin: 0; padding: 0; }
+.qi :where(ul, ol) { list-style: none; }
+.qi :where(a) { color: inherit; text-decoration: none; }
+.qi :where(button) { font: inherit; color: inherit; }
+.qi :where(img, svg, video) { display: block; max-width: 100%; }
+.qi-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .qi :focus-visible { outline: 2px solid var(--qi-sapphire); outline-offset: 4px; box-shadow: none; border-radius: 2px; }
 .qi section[id] { scroll-margin-top: 24px; }
 
@@ -70,6 +80,15 @@
 .qi-headline > span { display: block; }
 .qi-display { font: 500 clamp(40px, 4.7vw, 64px)/1.05 var(--qi-display); letter-spacing: -.012em; color: var(--qi-ink); max-width: 20ch; text-wrap: balance; }
 .qi-h3 { font: 500 32px/1.12 var(--qi-display); letter-spacing: -.005em; color: var(--qi-ink); }
+.qi-subhead { font-size: 18px; line-height: 1.65; color: var(--qi-ink-2); max-width: 36ch; margin-top: 30px; }
+.qi-cta-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 26px; margin-top: 34px; }
+.qi-facts { display: flex; flex-wrap: wrap; gap: 7px 17px; margin-top: 23px; font-size: 11px; line-height: 1.5; color: var(--qi-ink-3); }
+.qi-facts li { display: inline-flex; gap: 6px; align-items: center; }
+.qi-facts svg { width: 13px; height: 13px; flex: none; }
+/* Columns divided by hairlines, never cards. */
+.qi-cols { display: grid; grid-template-columns: repeat(var(--qi-cols, 3), minmax(0, 1fr)); gap: 38px; margin-top: 56px; }
+.qi-cols > * { min-width: 0; display: flex; flex-direction: column; }
+.qi-cols > * + * { border-left: 1px solid var(--qi-rule); padding-left: 35px; }
 .qi-lede { font-size: 18px; line-height: 1.65; color: var(--qi-ink-2); max-width: 52ch; margin-top: 22px; }
 .qi-body { font-size: 15.5px; line-height: 1.72; color: var(--qi-ink-2); }
 .qi-meta { font-size: 13px; color: var(--qi-ink-3); }
@@ -101,7 +120,10 @@
   .qi-eyebrow { font-size: 11px; margin-bottom: 18px; }
   .qi-headline { font-size: clamp(44px, 14vw, 80px); line-height: .96; }
   .qi-display { font-size: clamp(32px, 9vw, 44px); line-height: 1.06; }
-  .qi-lede { font-size: 16px; }
+  .qi-lede, .qi-subhead { font-size: 16px; }
+  .qi-cols { grid-template-columns: 1fr; gap: 0; margin-top: 36px; }
+  .qi-cols > * { padding-block: 28px; }
+  .qi-cols > * + * { border-left: 0; padding-left: 0; border-top: 1px solid var(--qi-rule); }
   .qi-btn { width: 100%; }
   .qi-close { padding: 80px 0 88px; }
 }

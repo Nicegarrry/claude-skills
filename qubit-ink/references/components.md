@@ -40,6 +40,11 @@ footer: mark + note | links | © line
 - Facts: 11px ink-3. Each fact is a 13px Heroicon plus text (date, time, place, price, seats).
 - Fine print: 13px ink-3 ("Free to use. Nothing to install.").
 - Phone: the hero becomes a column. The film sits below the text at full width with only the vertical mask. The button is full width.
+- **No film yet?** In order of preference:
+  - a sumi spot painting (or a still from an existing film) in the right column with the same feathered mask;
+  - a text-only hero with a facts column on the right: Mincho 20px lines with a sapphire hairline on the left;
+  - empty paper.
+  Never use a placeholder illustration, a gradient or a photo in a card.
 
 ## Stat moment
 

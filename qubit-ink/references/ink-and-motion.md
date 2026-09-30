@@ -27,7 +27,21 @@ Every ink effect follows the same contract:
 @media (prefers-reduced-motion:reduce) { .qi[data-ink-live] .qi-brush path { stroke-dashoffset:0 !important; } }
 ```
 
-Usage: `<span class="qi-inked">signed off<Brush className="qi-under" d="M6 26 C90 14 200 30 394 16"/></span>`. Use one per heading at most. Pale on paper, rust on the navy close band.
+No React? Use the same markup plus this script. The CSS already shows finished strokes when JS is absent:
+
+```html
+<span class="qi-inked">for you.<svg class="qi-brush qi-under" data-ink viewBox="0 0 400 40" preserveAspectRatio="none" aria-hidden="true"><path d="M8 24 C80 12 250 30 392 14" pathLength="1"/><path class="qi-brush-dry" d="M8 24 C80 12 250 30 392 14" pathLength="1"/></svg></span>
+<script>
+  const root = document.querySelector('.qi');
+  if (root && 'IntersectionObserver' in window) {
+    root.dataset.inkLive = 'true';
+    const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.dataset.inked = 'true'; io.unobserve(e.target); } }), { rootMargin: '0px 0px -12% 0px' });
+    root.querySelectorAll('[data-ink]').forEach(s => io.observe(s));
+  }
+</script>
+```
+
+Usage (React): `<span class="qi-inked">signed off<Brush className="qi-under" d="M6 26 C90 14 200 30 394 16"/></span>`. Use one per heading at most. Pale on paper, rust on the navy close band.
 
 ## 2. Sumi spot paintings (scroll-drawn)
 

@@ -12,7 +12,7 @@ assets/tokens.css            CSS custom properties + .qi-* base classes
 assets/QubitMark.tsx         Q / S woodblock marks + lockup
 assets/Brush.tsx             brush underline + InkReveal observer
 assets/brand/*.svg           mark, S, QS pair, reversed
-assets/fonts/                Shippori Mincho B1 500/700 (latin woff2, SIL OFL 1.1)
+assets/fonts/                Shippori Mincho B1 500/700 + Hanken Grotesk variable (SIL OFL 1.1)
 assets/paper.svg             paper grain tile
 references/components.md     page anatomy and component recipes
 references/ink-and-motion.md sumi spots, rail, washes, hero film, docking brand, motion
@@ -24,8 +24,8 @@ references/sources.md        live code, generators, screenshots, known divergenc
 ## Also recorded in
 
 - **VG:** style "Qubit Ink" (`mh7e9taa9zvm84kft6xwf0dnz58fdq7g`) for decks and docs.
-- **Common Ground:** `team/qubit-ink-design-system`.
+- **Common Ground:** `team/concept/qubit-ink-design-system`.
 
 ## Changelog
 
-- **v1 (2026-10-01):** first cut. It covers tokens, components, ink/motion and marks from homepage PR #42 and VG PR #467. It also sets up the VG style v1. Rust is standardised on `#b0552e`.
+- **v1 (2026-10-01):** first cut. It covers tokens, components, ink/motion and marks from homepage PR #42 and VG PR #467. It also sets up the VG style v1. Rust is standardised on `#b0552e`. After a fresh-agent test build, it adds a scoped reset, bundled Hanken, `.qi-subhead`, `.qi-cta-row`, `.qi-facts` and `.qi-cols`, a rust-per-screen rule, a no-film hero fallback and a vanilla brush script.
