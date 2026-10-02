@@ -1117,6 +1117,7 @@ def _apply_remove_comment(
 # ----- reply_comment (v0.6) -------------------------------------------------
 
 W16CID_NS = "http://schemas.microsoft.com/office/word/2016/wordml/cid"
+MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 
 
 def _rand_hex8(taken: set[str]) -> str:
@@ -1131,7 +1132,8 @@ def _rand_hex8(taken: set[str]) -> str:
 def _ensure_comments_extended(pkg: DocPackage) -> etree._Element:
     part = DocPackage.COMMENTS_EXTENDED_PART
     if not pkg.has(part):
-        root = etree.Element(f"{{{W15_NS}}}commentsEx", nsmap={"w15": W15_NS})
+        root = etree.fromstring(
+            f'<w15:commentsEx xmlns:mc="{MC_NS}" xmlns:w15="{W15_NS}" mc:Ignorable="w15"/>'.encode())
         pkg.add_part(part, etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True))
         pkg._trees[part] = root
         rid = pkg.alloc_rel_id()
@@ -1273,6 +1275,130 @@ def _apply_reply_comment(body: etree._Element, change: dict[str, str], rev: Revi
     return True, f"{fid}: reply_comment id={new_id} by {author!r} under comment {parent_id} (anchors={placed})"
 
 
+
+# ----- add_comment (v0.7) ---------------------------------------------------
+
+def _ensure_comment_styles(pkg: DocPackage) -> None:
+    """Add Word's built-in comment styles (CommentText, CommentReference) if absent."""
+    if not pkg.has(DocPackage.STYLES_PART):
+        return
+    st = pkg.get_tree(DocPackage.STYLES_PART)
+    have = {x.get(_q("styleId")) for x in st.findall(_q("style"))}
+    for sid, name, typ in (("CommentText", "annotation text", "paragraph"),
+                           ("CommentReference", "annotation reference", "character")):
+        if sid in have:
+            continue
+        el = etree.SubElement(st, _q("style")); el.set(_q("type"), typ); el.set(_q("styleId"), sid)
+        etree.SubElement(el, _q("name")).set(_q("val"), name)
+        etree.SubElement(el, _q("uiPriority")).set(_q("val"), "99")
+        etree.SubElement(el, _q("unhideWhenUsed"))
+        if typ == "paragraph":
+            etree.SubElement(etree.SubElement(el, _q("rPr")), _q("sz")).set(_q("val"), "20")
+        else:
+            etree.SubElement(etree.SubElement(el, _q("rPr")), _q("sz")).set(_q("val"), "16")
+    pkg.mark_dirty(DocPackage.STYLES_PART)
+
+
+def _ensure_comments_part(pkg: DocPackage) -> etree._Element:
+    part = DocPackage.COMMENTS_PART
+    if not pkg.has(part):
+        root = etree.fromstring(
+            f'<w:comments xmlns:mc="{MC_NS}" xmlns:w="{W_NS}" xmlns:w14="{W14_NS}" '
+            f'xmlns:w15="{W15_NS}" mc:Ignorable="w14 w15"/>'.encode())
+        pkg.add_part(part, etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True))
+        _ensure_comment_styles(pkg)
+        pkg._trees[part] = root
+        rid = pkg.alloc_rel_id()
+        pkg.add_relationship(DocPackage.REL_PART, rid,
+                             "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments",
+                             "comments.xml")
+        pkg.ensure_content_type_override("/word/comments.xml",
+                                         "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml")
+    pkg.mark_dirty(part)
+    return pkg.get_tree(part)
+
+
+def _apply_add_comment(p: etree._Element, change: dict[str, str], rev: RevisionFactory,
+                       pkg: DocPackage) -> tuple[bool, str]:
+    """Add a NEW top-level Word comment on paragraph p (no text edit).
+
+    Schema:
+      change_type: add_comment
+      feedback_id: N012
+      target_locator: <paraId or index>
+      comment_text: what was done (literal \n = line break)
+      anchor_text: optional exact text in the paragraph to anchor on (else whole paragraph)
+      comment_author: Claude (default)
+    Use it to answer reviewer feedback written inline (tracked insertions,
+    highlights) where there is no Word comment to reply to."""
+    fid = change.get("feedback_id", "?")
+    text = (change.get("comment_text", "") or "").strip()
+    author = (change.get("comment_author", "") or "Claude").strip()
+    if not text:
+        return False, f"{fid}: add_comment requires comment_text"
+    cm = _ensure_comments_part(pkg)
+    ids = []
+    for c in cm.findall(_q("comment")):
+        try:
+            ids.append(int(c.get(_q("id"))))
+        except (TypeError, ValueError):
+            pass
+    taken: set[str] = set()
+    for part in (DocPackage.COMMENTS_PART, DocPackage.DOC_PART):
+        for el in pkg.get_tree(part).iter():
+            v = el.get(f"{{{W14_NS}}}paraId")
+            if v:
+                taken.add(v.upper())
+    new_id = str(max(ids + [0, 899]) + 1)
+    c = etree.SubElement(cm, _q("comment"))
+    c.set(_q("id"), new_id); c.set(_q("author"), author); c.set(_q("date"), rev.date)
+    c.set(_q("initials"), (change.get("comment_initials") or author[:1]).upper())
+    cp = etree.SubElement(c, _q("p"))
+    pid = _rand_hex8(taken)
+    cp.set(f"{{{W14_NS}}}paraId", pid); cp.set(f"{{{W14_NS}}}textId", "77777777")
+    etree.SubElement(etree.SubElement(cp, _q("pPr")), _q("pStyle")).set(_q("val"), "CommentText")
+    r0 = etree.SubElement(cp, _q("r"))
+    etree.SubElement(etree.SubElement(r0, _q("rPr")), _q("rStyle")).set(_q("val"), "CommentReference")
+    etree.SubElement(r0, _q("annotationRef"))
+    r = etree.SubElement(cp, _q("r"))
+    for k, chunk in enumerate(text.replace("\\n", "\n").split("\n")):
+        if k:
+            etree.SubElement(r, _q("br"))
+        t = etree.SubElement(r, _q("t")); t.text = chunk
+        t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    if True:
+        ext = _ensure_comments_extended(pkg)
+        e = etree.SubElement(ext, f"{{{W15_NS}}}commentEx")
+        e.set(f"{{{W15_NS}}}paraId", pid); e.set(f"{{{W15_NS}}}done", "0")
+
+    # Anchors: direct children of <w:p> only.
+    kids = [k for k in p if k.tag != _q("pPr")]
+    start_el = kids[0] if kids else None
+    end_el = kids[-1] if kids else None
+    anchor = (change.get("anchor_text", "") or "").strip()
+    if anchor and anchor in _para_text(p):
+        off = _para_text(p).index(anchor)
+        tmap = _build_text_run_map(p)
+        def top(el):
+            while el.getparent() is not p:
+                el = el.getparent()
+            return el
+        hits = [t for (t, a, b) in tmap if b > off and a < off + len(anchor)]
+        if hits:
+            start_el, end_el = top(hits[0]), top(hits[-1])
+    rs = etree.Element(_q("commentRangeStart")); rs.set(_q("id"), new_id)
+    re_ = etree.Element(_q("commentRangeEnd")); re_.set(_q("id"), new_id)
+    ref = etree.Element(_q("r"))
+    etree.SubElement(etree.SubElement(ref, _q("rPr")), _q("rStyle")).set(_q("val"), "CommentReference")
+    etree.SubElement(ref, _q("commentReference")).set(_q("id"), new_id)
+    if start_el is None:
+        p.append(rs); p.append(re_); p.append(ref)
+    else:
+        start_el.addprevious(rs); end_el.addnext(re_); re_.addnext(ref)
+    pkg.mark_dirty(DocPackage.DOC_PART)
+    return True, f"{fid}: add_comment id={new_id} by {author!r}"
+
+
 # ----- core edit operation ---------------------------------------------------
 def _split_run_at(t_el: etree._Element, local_offset: int) -> tuple[etree._Element, etree._Element | None]:
     """
@@ -1367,6 +1493,10 @@ def apply_change(
         if pkg is None:
             return False, f"{fid}: apply_style requires DocPackage context"
         return _apply_style(p, change, rev, pkg)
+    if ctype == "add_comment":
+        if pkg is None:
+            return False, f"{fid}: add_comment requires DocPackage context"
+        return _apply_add_comment(p, change, rev, pkg)
     if ctype == "reply_comment":
         if pkg is None:
             return False, f"{fid}: reply_comment requires DocPackage context"
