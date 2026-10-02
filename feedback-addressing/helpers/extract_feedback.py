@@ -294,40 +294,45 @@ def _build_comment_threads(
 
     Mapping note: `comments.xml` `w:comment` elements contain `w:p` paragraphs
     each with a `w14:paraId`. `commentsExtended.xml` `w15:commentEx` elements
-    use `w15:paraId` to point at the FIRST paragraph of a comment, and
-    `w15:paraIdParent` to point at the parent comment's first-paragraph
-    paraId. We normalise paraId to uppercase hex for comparison.
+    use `w15:paraId` to point at the LAST paragraph of a comment (Word's
+    behaviour; first-paragraph files are also accepted via aliasing), and
+    `w15:paraIdParent` to point at the parent comment's paragraph paraId. We normalise paraId to uppercase hex for comparison.
     """
     if comments_ext_root is None:
         return {}
 
-    # 1. paraId → comment metadata, using each comment's first <w:p>
+    # 1. paraId → comment metadata. Word keys commentEx rows on a comment's
+    # LAST paragraph; older/synthetic files may use the first. Key each
+    # comment on its last paragraph and alias every paragraph to it.
     paraid_to_comment: dict[str, dict[str, Any]] = {}
+    alias: dict[str, str] = {}
     for c in comments_root.findall(_q("comment")):
         cid = c.get(_q("id"))
         if cid is None:
             continue
-        first_p = c.find(_q("p"))
-        if first_p is None:
+        pids = [p.get(_q("paraId", W14_NS)) for p in c.findall(_q("p"))]
+        pids = [x.upper() for x in pids if x]
+        if not pids:
             continue
-        pid = first_p.get(_q("paraId", W14_NS))
-        if not pid:
-            continue
-        paraid_to_comment[pid.upper()] = {
+        canon = pids[-1]
+        for x in pids:
+            alias[x] = canon
+        paraid_to_comment[canon] = {
             "comment_id": cid,
             "author": c.get(_q("author")) or "(unknown)",
             "text": _comment_text(c),
             "date": c.get(_q("date")) or "",
-            "paraId": pid.upper(),
+            "paraId": canon,
         }
 
-    # 2. paraId → paraIdParent map from commentsExtended
+    # 2. paraId → paraIdParent map from commentsExtended (normalised via alias)
     parent_of: dict[str, str | None] = {}
     for el in comments_ext_root.findall(_q("commentEx", W15_NS)):
         pid = el.get(_q("paraId", W15_NS))
         parent = el.get(_q("paraIdParent", W15_NS))
         if pid:
-            parent_of[pid.upper()] = parent.upper() if parent else None
+            k = alias.get(pid.upper(), pid.upper())
+            parent_of[k] = alias.get(parent.upper(), parent.upper()) if parent else None
 
     # 3. Build children index: parent_paraId → [child_paraId, ...]
     children_of: dict[str, list[str]] = {}

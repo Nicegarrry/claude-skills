@@ -1113,6 +1113,166 @@ def _apply_remove_comment(
     )
 
 
+
+# ----- reply_comment (v0.6) -------------------------------------------------
+
+W16CID_NS = "http://schemas.microsoft.com/office/word/2016/wordml/cid"
+
+
+def _rand_hex8(taken: set[str]) -> str:
+    import random
+    while True:
+        v = f"{random.randint(1, 0x7FFFFFFE):08X}"
+        if v not in taken:
+            taken.add(v)
+            return v
+
+
+def _ensure_comments_extended(pkg: DocPackage) -> etree._Element:
+    part = DocPackage.COMMENTS_EXTENDED_PART
+    if not pkg.has(part):
+        root = etree.Element(f"{{{W15_NS}}}commentsEx", nsmap={"w15": W15_NS})
+        pkg.add_part(part, etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True))
+        pkg._trees[part] = root
+        rid = pkg.alloc_rel_id()
+        pkg.add_relationship(DocPackage.REL_PART, rid,
+                             "http://schemas.microsoft.com/office/2011/relationships/commentsExtended",
+                             "commentsExtended.xml")
+        pkg.ensure_content_type_override("/word/commentsExtended.xml", "application/vnd.ms-word.commentsExtended+xml")
+    pkg.mark_dirty(part)
+    return pkg.get_tree(part)
+
+
+def _apply_reply_comment(body: etree._Element, change: dict[str, str], rev: RevisionFactory,
+                         pkg: DocPackage) -> tuple[bool, str]:
+    """Add a threaded reply under an existing Word comment.
+
+    Schema:
+      change_type: reply_comment
+      feedback_id: F01
+      comment_id: 12            (w:id of the comment being replied to)
+      reply_text: Claude's reply. Use a literal \n for a line break.
+      reply_author: Claude      (optional; default "Claude")
+      reply_initials: C         (optional)
+
+    Writes the reply to comments.xml, threads it via w15:paraIdParent in
+    commentsExtended.xml (and commentsIds.xml when present), and mirrors the
+    parent's range/reference markers in document.xml so Word shows it in
+    the parent's thread. Never edits or removes the parent comment."""
+    fid = change.get("feedback_id", "?")
+    parent_id = (change.get("comment_id", "") or "").strip()
+    text = (change.get("reply_text", "") or "").strip()
+    author = (change.get("reply_author", "") or "Claude").strip()
+    initials = (change.get("reply_initials", "") or author[:1].upper()).strip()
+    if not parent_id or not text:
+        return False, f"{fid}: reply_comment requires comment_id and reply_text"
+    if not pkg.has(DocPackage.COMMENTS_PART):
+        return False, f"{fid}: reply_comment: document has no comments.xml"
+    cm = pkg.get_tree(DocPackage.COMMENTS_PART)
+    parent = None
+    ids = []
+    for c in cm.findall(_q("comment")):
+        try:
+            ids.append(int(c.get(_q("id"))))
+        except (TypeError, ValueError):
+            pass
+        if c.get(_q("id")) == parent_id:
+            parent = c
+    if parent is None:
+        return False, f"{fid}: reply_comment: parent comment id={parent_id!r} not found"
+    # paraIds already used anywhere in comments / document
+    taken: set[str] = set()
+    for tree_part in (DocPackage.COMMENTS_PART, DocPackage.DOC_PART):
+        for el in pkg.get_tree(tree_part).iter():
+            v = el.get(f"{{{W14_NS}}}paraId")
+            if v:
+                taken.add(v.upper())
+    pparas = parent.findall(_q("p"))
+    if not pparas:
+        return False, f"{fid}: reply_comment: parent comment has no paragraph"
+    parent_pid = pparas[-1].get(f"{{{W14_NS}}}paraId")
+    if not parent_pid:
+        parent_pid = _rand_hex8(taken)
+        pparas[-1].set(f"{{{W14_NS}}}paraId", parent_pid)
+        pparas[-1].set(f"{{{W14_NS}}}textId", "77777777")
+        ext = _ensure_comments_extended(pkg)
+        e = etree.SubElement(ext, f"{{{W15_NS}}}commentEx")
+        e.set(f"{{{W15_NS}}}paraId", parent_pid)
+        e.set(f"{{{W15_NS}}}done", "0")
+
+    new_id = str(max(ids + [0]) + 1)
+    reply = etree.SubElement(cm, _q("comment"))
+    reply.set(_q("id"), new_id)
+    reply.set(_q("author"), author)
+    reply.set(_q("date"), rev.date)
+    reply.set(_q("initials"), initials)
+    # One paragraph (Word threads by the comment's paragraph paraId; a single
+    # paragraph keeps first == last). A literal \n becomes a line break.
+    p = etree.SubElement(reply, _q("p"))
+    last_pid = _rand_hex8(taken)
+    p.set(f"{{{W14_NS}}}paraId", last_pid)
+    p.set(f"{{{W14_NS}}}textId", "77777777")
+    ppr = etree.SubElement(p, _q("pPr"))
+    etree.SubElement(ppr, _q("pStyle")).set(_q("val"), "CommentText")
+    r0 = etree.SubElement(p, _q("r"))
+    rpr = etree.SubElement(r0, _q("rPr"))
+    etree.SubElement(rpr, _q("rStyle")).set(_q("val"), "CommentReference")
+    etree.SubElement(r0, _q("annotationRef"))
+    r = etree.SubElement(p, _q("r"))
+    for k, chunk in enumerate(text.replace("\\n", "\n").split("\n")):
+        if k:
+            etree.SubElement(r, _q("br"))
+        t = etree.SubElement(r, _q("t"))
+        t.text = chunk
+        t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    pkg.mark_dirty(DocPackage.COMMENTS_PART)
+
+    ext = _ensure_comments_extended(pkg)
+    e = etree.SubElement(ext, f"{{{W15_NS}}}commentEx")
+    e.set(f"{{{W15_NS}}}paraId", last_pid)
+    e.set(f"{{{W15_NS}}}paraIdParent", parent_pid)
+    e.set(f"{{{W15_NS}}}done", "0")
+
+    if pkg.has(DocPackage.COMMENTS_IDS_PART):
+        ids_root = pkg.get_tree(DocPackage.COMMENTS_IDS_PART)
+        ce = etree.SubElement(ids_root, f"{{{W16CID_NS}}}commentId")
+        ce.set(f"{{{W16CID_NS}}}paraId", last_pid)
+        ce.set(f"{{{W16CID_NS}}}durableId", _rand_hex8(taken))
+        pkg.mark_dirty(DocPackage.COMMENTS_IDS_PART)
+
+    # Mirror the parent's anchors in document.xml.
+    placed = 0
+    for el in list(body.iter(_q("commentRangeStart"))):
+        if el.get(_q("id")) == parent_id:
+            n = etree.Element(_q("commentRangeStart")); n.set(_q("id"), new_id)
+            el.addnext(n); placed += 1
+            break
+    for el in list(body.iter(_q("commentRangeEnd"))):
+        if el.get(_q("id")) == parent_id:
+            n = etree.Element(_q("commentRangeEnd")); n.set(_q("id"), new_id)
+            el.addnext(n); placed += 1
+            break
+    ref_run = None
+    for ref in body.iter(_q("commentReference")):
+        if ref.get(_q("id")) == parent_id:
+            ref_run = ref.getparent()
+            break
+    nr = etree.Element(_q("r"))
+    nrpr = etree.SubElement(nr, _q("rPr"))
+    etree.SubElement(nrpr, _q("rStyle")).set(_q("val"), "CommentReference")
+    etree.SubElement(nr, _q("commentReference")).set(_q("id"), new_id)
+    if ref_run is not None and ref_run.tag == _q("r"):
+        ref_run.addnext(nr); placed += 1
+    else:
+        # fall back: after our commentRangeEnd, inside a run-capable parent
+        for el in body.iter(_q("commentRangeEnd")):
+            if el.get(_q("id")) == new_id:
+                el.addnext(nr); placed += 1
+                break
+    pkg.mark_dirty(DocPackage.DOC_PART)
+    return True, f"{fid}: reply_comment id={new_id} by {author!r} under comment {parent_id} (anchors={placed})"
+
+
 # ----- core edit operation ---------------------------------------------------
 def _split_run_at(t_el: etree._Element, local_offset: int) -> tuple[etree._Element, etree._Element | None]:
     """
@@ -1207,6 +1367,15 @@ def apply_change(
         if pkg is None:
             return False, f"{fid}: apply_style requires DocPackage context"
         return _apply_style(p, change, rev, pkg)
+    if ctype == "reply_comment":
+        if pkg is None:
+            return False, f"{fid}: reply_comment requires DocPackage context"
+        body = p
+        while body is not None and body.tag != _q("body"):
+            body = body.getparent()
+        if body is None:
+            return False, f"{fid}: reply_comment could not locate <w:body>"
+        return _apply_reply_comment(body, change, rev, pkg)
     if ctype == "remove_comment":
         if pkg is None:
             return False, f"{fid}: remove_comment requires DocPackage context"
@@ -1422,6 +1591,9 @@ def apply(
     notes: list[str] = []
     for ch in changes:
         ctype = (ch.get("change_type", "") or "").strip().lower()
+        if ctype == "reply_comment":
+            resolved.append((-2, body, ch))  # after edits, before removals
+            continue
         if ctype == "remove_comment":
             # Use sentinel -1; we'll pass <w:body> as the element so the
             # helper can locate comment refs anywhere in the doc.
@@ -1439,7 +1611,8 @@ def apply(
 
     # Sort by paragraph index DESCENDING (bottom-up). remove_comment rows have
     # idx=-1 and run last, after all paragraph-anchored edits.
-    resolved.sort(key=lambda t: t[0], reverse=True)
+    # Order: paragraph edits bottom-up, then reply_comment (-2), then remove_comment (-1).
+    resolved.sort(key=lambda t: (1, t[0]) if t[0] >= 0 else (0, 1 if t[0] == -2 else 0), reverse=True)
 
     applied_count = 0
     skipped_count = 0

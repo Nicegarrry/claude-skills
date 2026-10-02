@@ -1,7 +1,7 @@
 ---
 name: feedback-addressing
 description: Use when addressing reviewer feedback on a Word (.docx) document — a file plus inline comments and/or free-text dot-point notes — and you need the document back with native Word track-changes applied, an internal audit table, and a reviewer-facing email reply. Triggers include "address this feedback", "incorporate these comments", "respond to the reviewer", "work through these review notes", or a doc handed over with a feedback dump. Tiered P1/P2/P3 findings. Drafts only — never auto-sends.
-version: "0.5"
+version: "0.6"
 license: MIT
 ---
 
@@ -90,6 +90,7 @@ Each step produces a named artefact under the run folder (default `./feedback-ru
    - `insert_image` — `target_locator`, `image_path`, `width_emu` (optional), `height_emu` (optional), `caption_text` (optional), `style_name` (optional).
    - `insert_table` — `target_locator`, `headers` (JSON list or `|`-sep), `rows` (JSON list-of-lists), `caption_text` (optional).
    - `apply_style` — `target_locator`, `style_name` (e.g. "Heading 1", "Quote").
+   - `reply_comment` (v0.6) — `comment_id` (the Word `w:id` of the comment to answer), `reply_text` (one paragraph; a literal `\n` becomes a line break), `reply_author` (default `Claude`), `reply_initials` (optional). Adds a native threaded reply in the parent's thread (comments.xml + commentsExtended.xml `paraIdParent` + commentsIds.xml when present + mirrored range/reference anchors). Never edits or removes the parent. Use it to tell the owner what was done for each comment so they can reply and resolve it themselves.
    - `remove_comment` — `comment_id` (the Word `w:id`), `comment_author` (must be in the allowlist; default EMPTY, set via env `FA_REMOVE_COMMENT_AUTHORS`). The helper raises `RemoveCommentAuthorNotAllowed` if the author is not in the allowlist; the orchestration catches this and logs the change as `escalated`. **NEVER add `remove_comment` for a reviewer comment** — it destroys the review trail. Pair every owner-authored substantive change with a `remove_comment` row for the same comment_id (rule B). If the substantive change is escalated, suppress the paired `remove_comment` (preserve the comment to revisit).
 
    `target_locator` is `paragraph_id` (w14:paraId hex) or `paragraph_index` (0-based int). One block per row.
@@ -164,6 +165,8 @@ When a comment is terse, casual, or shorthand (e.g. "fix this", "to do", "need f
 Word stores comment threads as a flat list in `comments.xml` plus a parent/child map in `commentsExtended.xml`. Each `w15:commentEx` element has a `w15:paraId` (linking to the comment's first-paragraph paraId in `comments.xml`) and an optional `w15:paraIdParent` (pointing at the parent comment's paraId). The extractor parses this map and emits a `comment_thread` field per row: the ordered sequence of `[parent, …replies-by-date]` entries, each with `{comment_id, author, text, role: parent|self|reply, date}`.
 
 Worked example: an owner reply of "to do" (comment 127) that replies to a reviewer's "I would put a footnote here to define what we mean by 'rating'" (comment 126). Reading the thread recognises the "to do" as agreement with the reviewer ask, and drafts the footnote rather than escalating.
+
+Word keys each `w15:commentEx` row on the comment's LAST paragraph; the extractor keys comments on their last paragraph and aliases every other paragraph, so multi-paragraph comments thread correctly (fixed v0.6).
 
 **Out of scope.** This reads `commentsExtended.xml` only. Word also stores `commentsIds.xml` (durable comment-id mapping) and author @-mentions inside a comment body. Those signals are not surfaced — documented as a known limit; impact is low for peer-review docs but matters for corporate review threads.
 
@@ -268,6 +271,7 @@ For `footnote`: `footnote_text` (required), `anchor_after_text` (optional, defau
 For `insert_image`: `image_path` (required), `width_emu`/`height_emu`/`caption_text`/`style_name` (optional).
 For `insert_table`: `headers` and/or `rows` (one required; JSON list or pipe-separated), `caption_text` (optional).
 For `apply_style`: `style_name` (required) — emits `<w:pPrChange>` so reviewers can see the prior pPr.
+For `reply_comment`: `comment_id` and `reply_text` (required), `reply_author` (default `Claude`), `reply_initials` (optional). Applied after all paragraph edits and before any `remove_comment`.
 For `remove_comment`: `comment_id` (required), `comment_author` (required, must be in allowlist; default EMPTY, set via env `FA_REMOVE_COMMENT_AUTHORS`).
 
 ## Boundary
