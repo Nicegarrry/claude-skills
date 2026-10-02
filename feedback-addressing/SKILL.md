@@ -9,7 +9,7 @@ license: MIT
 
 End-to-end loop for addressing reviewer feedback on a Word document — extract the feedback, plan, research the gaps, ask the right clarifying questions, apply tracked edits, and produce both an internal audit table and a reviewer-facing summary.
 
-The skill works driven by a single agent. For larger feedback dumps it fans work out to subagents (one per category) with a single writer to the document and a verification gate before anything is applied — see [`references/orchestration.md`](references/orchestration.md). It ships Python helpers for the mechanical parts (comment extraction, native Word track-changes, reviewer-email rendering, visual QA).
+The skill works driven by a single agent. For larger feedback dumps it fans work out to subagents (one per category) with a single writer to the document and a verification gate before anything is applied — see [`references/orchestration.md`](references/orchestration.md). For complex rounds (several related documents, a reviewer call transcript, reference-heavy or cross-document fixes) use **workflow mode**: `workflows/deep-feedback.js`, a Claude Code Workflow that runs understand → cross-document consistency → plan → research + adversarial check → targeted write → check gate → spirit/voice/accuracy review → apply, with threaded `Claude` replies on every comment — see [`references/workflow-mode.md`](references/workflow-mode.md). It ships Python helpers for the mechanical parts (comment extraction, native Word track-changes, reviewer-email rendering, visual QA).
 
 ## Local configuration (private overlay)
 
