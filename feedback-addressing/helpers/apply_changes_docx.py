@@ -86,6 +86,9 @@ from typing import Any
 
 from lxml import etree
 
+# Inputs are untrusted .docx files: never resolve entities or load DTDs (XXE).
+_SAFE_PARSER = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False)
+
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 W14_NS = "http://schemas.microsoft.com/office/word/2010/wordml"
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -323,7 +326,7 @@ class DocPackage:
             return self._trees[part]
         if part not in self._parts:
             raise KeyError(f"part not in package: {part}")
-        tree = etree.fromstring(self._parts[part])
+        tree = etree.fromstring(self._parts[part], _SAFE_PARSER)
         self._trees[part] = tree
         return tree
 
