@@ -50,7 +50,7 @@ with tempfile.TemporaryDirectory() as d:
             z.writestr(n, v)
     ch = d / "c.md"; ch.write_text(CHANGES)
     out = d / "out.docx"
-    applied, skipped, notes = apply(src, ch, out, "Nick Pinidiya", "2026-10-03T00:00:00Z")
+    applied, skipped, notes = apply(src, ch, out, "Owner", "2026-10-03T00:00:00Z")
     assert applied == 2, notes
     z = zipfile.ZipFile(out)
     cm = etree.fromstring(z.read("word/comments.xml"))
@@ -66,7 +66,7 @@ with tempfile.TemporaryDirectory() as d:
     assert "commentsExtended" in z.read("[Content_Types].xml").decode()
     doc = z.read("word/document.xml").decode()
     assert doc.count('w:id="6"') == 3, "reply anchors (start, end, reference) missing"
-    assert 'w:author="Nick Pinidiya"' in doc and "<w:ins" in doc and "<w:del" in doc
+    assert 'w:author="Owner"' in doc and "<w:ins" in doc and "<w:del" in doc
     rows = extract(out)
     assert any(r.get("comment_thread") and len(r["comment_thread"]) == 2 for r in rows), "extractor did not see the thread"
     print("OK reply_comment smoke test")

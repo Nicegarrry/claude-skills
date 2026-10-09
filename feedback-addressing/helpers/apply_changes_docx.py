@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-apply_changes_docx.py — apply tracked-changes edits to a .docx, given a
+apply_changes_docx.py (v0.8) — apply tracked-changes edits to a .docx, given a
 markdown change list per the feedback-addressing skill (SKILL.md step 9).
 
 WHAT IT DOES
@@ -10,42 +10,63 @@ WHAT IT DOES
 - For each change, locates the target paragraph by `paragraph_id`
   (w14:paraId) or fallback `paragraph_index`, then applies the edit using
   native Word revision markup:
-    insert  → wrap new text in <w:ins w:id w:author w:date><w:r><w:t>...</w:t></w:r></w:ins>
-    delete  → wrap matched run-text in <w:del>...<w:r><w:delText>...</w:delText></w:r></w:del>
-    replace → delete the matched text and insert the new text at the same anchor
-    comment-only → no doc edit; logged but not applied
+    insert           → append <w:ins> at the true paragraph end (after any trailing
+                       reviewer insertion), with a separating space when needed
+    delete           → wrap each matched run IN PLACE in <w:del> (adjacent runs share
+                       one); comment ranges, comment reference runs, bookmarks,
+                       proofErr and hyperlink boundaries stay put. Never leaves a
+                       double space. A delete that empties a paragraph also deletes
+                       its paragraph mark (unless the mark already has a revision).
+    replace          → in-place delete, then <w:ins> right after the last deleted run
+                       (rPr from the first deleted run minus revision marks/highlight)
+    insert_paragraph → tracked NEW paragraph before/after the target (see below)
+    delete_footnote_ref → tracked deletion of a footnote reference mark
+    comment-only     → no doc edit; logged but not applied
+  plus footnote / insert_image / insert_table / apply_style / add_comment /
+  reply_comment / remove_comment (see each function's docstring).
 - Edits are applied BOTTOM-UP (reverse paragraph order) so locators don't
-  shift mid-pass.
+  shift mid-pass; several changes on one paragraph run in file order.
 - PRESERVES any pre-existing <w:ins> / <w:del> markup (we only ever ADD new
-  revisions; we never touch existing ones).
+  revisions). Inserted runs never inherit a reviewer's rPrChange/ins/del.
+- Post-pass: an author <w:ins> nested inside another author's <w:ins> (a
+  replace inside reviewer-inserted text) is hoisted into a sibling.
 - Sets author/date to the supplied values (defaults: "feedback-addressing" /
   current ISO timestamp).
 
+v0.8 (2026-10): folded in the u2/u3/u5 run-local wrapper patches (in-place
+delete, insert_paragraph, delete_footnote_ref, nested-ins hoist, end-of-paragraph
+insert, whitespace handling, no empty-run split, paragraph-mark delete, clean
+inserted rPr). Aliases kept: `insert` + `new_paragraph: after|before`;
+`comment-only` + `new_paragraph_after`/`new_paragraph_text`; `slot_order`.
+
 WHAT IT DOESN'T DO
 ------------------
-- Does NOT regenerate or restructure paragraphs — only insert/delete/replace
-  inside an existing paragraph at a specific anchor substring.
 - Does NOT validate the change against the original reviewer comment — that's
   the verification (check) step's job.
-- Does NOT modify comments.xml — original reviewer comments stay intact.
+- Does NOT edit or remove reviewer comments (remove_comment is allowlisted).
 
 CHANGE-BLOCK MARKDOWN FORMAT
 ----------------------------
-Each block separated by a `---` line. Within each block, fenced as `key: value`
-with one block per change. `target_locator` accepts either a `paragraph_id`
-(w14:paraId hex string) or a `paragraph_index` (0-based int).
+Each block separated by a `---` line. Within each block, `key: value` lines.
+`target_locator` accepts either a `paragraph_id` (w14:paraId hex string) or a
+`paragraph_index` (0-based int).
 
     feedback_id: F01
-    change_type: replace        # insert | delete | replace | comment-only
+    change_type: replace        # insert | delete | replace | insert_paragraph | ...
     target_locator: 6DF65335    # paraId hex OR an int paragraph index
-    before_text: incredibly     # required for delete/replace; empty for insert
-    after_text: especially       # required for insert/replace; empty for delete
+    before_text: incredibly     # required for delete/replace
+    after_text: especially      # required for insert/replace/insert_paragraph
     rationale: shorter, less hyperbolic per reviewer
     evidence_refs: F01
 
 For a `replace`, the helper deletes the FIRST occurrence of `before_text` in
 that paragraph, then inserts `after_text` at that anchor. If `before_text` is
 not found, the helper logs a warning and SKIPS the change (does not crash).
+
+insert_paragraph fields: position (after|before, default after), sequence
+(optional order among inserts on one target), clone_ppr_from (paraId, default
+target), clone_ppr (no = empty pPr), style_name, clone_rpr_from, italic_text,
+italic.
 
 USAGE
 -----
@@ -182,16 +203,46 @@ def _build_text_run_map(p: etree._Element) -> list[tuple[etree._Element, int, in
 
 
 # ----- run / revision factory ------------------------------------------------
+_REVISION_RPR_TAGS = ("rPrChange", "ins", "del", "moveFrom", "moveTo")
+
+
+def _clean_rpr(rpr: etree._Element | None, extra: tuple[str, ...] = ()) -> etree._Element | None:
+    """Clone an rPr minus any revision markup (v0.8): inserted runs must never
+    inherit a reviewer's <w:rPrChange> / <w:ins> / <w:del> marks. `extra` names
+    further children to drop (e.g. "highlight")."""
+    if rpr is None:
+        return None
+    rpr = _clone(rpr)
+    for tag in _REVISION_RPR_TAGS + tuple(extra):
+        for el in rpr.findall(_q(tag)):
+            rpr.remove(el)
+    return rpr
+
+
 class RevisionFactory:
     def __init__(self, author: str, date_iso: str):
         self.author = author
         self.date = date_iso
         self._next_id = 0
+        # v0.8 per-run state for insert_paragraph: placed paragraphs per
+        # (target, position) so successive inserts chain, and taken paraIds.
+        self.para_chain: dict[tuple[int, str], list[tuple[float, etree._Element]]] = {}
+        self.taken_paraids: set[str] | None = None
+        import random as _random
+        self.rng = _random.Random(f"{author}|{date_iso}")
 
     def _id(self) -> str:
         self._next_id += 1
         # use a high base to avoid colliding with any existing w:id values
         return str(900000 + self._next_id)
+
+    def stamp(self, tag: str) -> etree._Element:
+        """A bare revision element (<w:ins>, <w:del>, ...) with id/author/date."""
+        el = etree.Element(_q(tag))
+        el.set(_q("id"), self._id())
+        el.set(_q("author"), self.author)
+        el.set(_q("date"), self.date)
+        return el
 
     def make_ins(self, text: str, run_props: etree._Element | None = None) -> etree._Element:
         ins = etree.SubElement(etree.Element("dummy"), _q("ins"))
@@ -199,8 +250,9 @@ class RevisionFactory:
         ins.set(_q("author"), self.author)
         ins.set(_q("date"), self.date)
         r = etree.SubElement(ins, _q("r"))
-        if run_props is not None:
-            r.append(_clone(run_props))
+        run_props = _clean_rpr(run_props)
+        if run_props is not None and len(run_props):
+            r.append(run_props)
         t = etree.SubElement(r, _q("t"))
         t.text = text
         # preserve leading/trailing whitespace
@@ -511,6 +563,9 @@ def _apply_footnote(
                     local_off = end - s
             if target_t is not None:
                 left, right = _split_run_at(target_t, local_off)
+                if left is None and right is not None:
+                    right.addprevious(ins)
+                    return True, f"{fid}: footnote inserted after {anchor_after!r} (id={fn_id})"
                 # Insert ins after `left` in left's parent
                 left_parent = left.getparent()
                 if left_parent is not None:
@@ -1117,6 +1172,7 @@ def _apply_remove_comment(
 # ----- reply_comment (v0.6) -------------------------------------------------
 
 W16CID_NS = "http://schemas.microsoft.com/office/word/2016/wordml/cid"
+MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 
 
 def _rand_hex8(taken: set[str]) -> str:
@@ -1131,7 +1187,8 @@ def _rand_hex8(taken: set[str]) -> str:
 def _ensure_comments_extended(pkg: DocPackage) -> etree._Element:
     part = DocPackage.COMMENTS_EXTENDED_PART
     if not pkg.has(part):
-        root = etree.Element(f"{{{W15_NS}}}commentsEx", nsmap={"w15": W15_NS})
+        root = etree.fromstring(
+            f'<w15:commentsEx xmlns:mc="{MC_NS}" xmlns:w15="{W15_NS}" mc:Ignorable="w15"/>'.encode())
         pkg.add_part(part, etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True))
         pkg._trees[part] = root
         rid = pkg.alloc_rel_id()
@@ -1273,26 +1330,148 @@ def _apply_reply_comment(body: etree._Element, change: dict[str, str], rev: Revi
     return True, f"{fid}: reply_comment id={new_id} by {author!r} under comment {parent_id} (anchors={placed})"
 
 
+
+# ----- add_comment (v0.7) ---------------------------------------------------
+
+def _ensure_comment_styles(pkg: DocPackage) -> None:
+    """Add Word's built-in comment styles (CommentText, CommentReference) if absent."""
+    if not pkg.has(DocPackage.STYLES_PART):
+        return
+    st = pkg.get_tree(DocPackage.STYLES_PART)
+    have = {x.get(_q("styleId")) for x in st.findall(_q("style"))}
+    for sid, name, typ in (("CommentText", "annotation text", "paragraph"),
+                           ("CommentReference", "annotation reference", "character")):
+        if sid in have:
+            continue
+        el = etree.SubElement(st, _q("style")); el.set(_q("type"), typ); el.set(_q("styleId"), sid)
+        etree.SubElement(el, _q("name")).set(_q("val"), name)
+        etree.SubElement(el, _q("uiPriority")).set(_q("val"), "99")
+        etree.SubElement(el, _q("unhideWhenUsed"))
+        if typ == "paragraph":
+            etree.SubElement(etree.SubElement(el, _q("rPr")), _q("sz")).set(_q("val"), "20")
+        else:
+            etree.SubElement(etree.SubElement(el, _q("rPr")), _q("sz")).set(_q("val"), "16")
+    pkg.mark_dirty(DocPackage.STYLES_PART)
+
+
+def _ensure_comments_part(pkg: DocPackage) -> etree._Element:
+    part = DocPackage.COMMENTS_PART
+    if not pkg.has(part):
+        root = etree.fromstring(
+            f'<w:comments xmlns:mc="{MC_NS}" xmlns:w="{W_NS}" xmlns:w14="{W14_NS}" '
+            f'xmlns:w15="{W15_NS}" mc:Ignorable="w14 w15"/>'.encode())
+        pkg.add_part(part, etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True))
+        _ensure_comment_styles(pkg)
+        pkg._trees[part] = root
+        rid = pkg.alloc_rel_id()
+        pkg.add_relationship(DocPackage.REL_PART, rid,
+                             "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments",
+                             "comments.xml")
+        pkg.ensure_content_type_override("/word/comments.xml",
+                                         "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml")
+    pkg.mark_dirty(part)
+    return pkg.get_tree(part)
+
+
+def _apply_add_comment(p: etree._Element, change: dict[str, str], rev: RevisionFactory,
+                       pkg: DocPackage) -> tuple[bool, str]:
+    """Add a NEW top-level Word comment on paragraph p (no text edit).
+
+    Schema:
+      change_type: add_comment
+      feedback_id: N012
+      target_locator: <paraId or index>
+      comment_text: what was done (literal \n = line break)
+      anchor_text: optional exact text in the paragraph to anchor on (else whole paragraph)
+      comment_author: Claude (default)
+    Use it to answer reviewer feedback written inline (tracked insertions,
+    highlights) where there is no Word comment to reply to."""
+    fid = change.get("feedback_id", "?")
+    text = (change.get("comment_text", "") or "").strip()
+    author = (change.get("comment_author", "") or "Claude").strip()
+    if not text:
+        return False, f"{fid}: add_comment requires comment_text"
+    cm = _ensure_comments_part(pkg)
+    ids = []
+    for c in cm.findall(_q("comment")):
+        try:
+            ids.append(int(c.get(_q("id"))))
+        except (TypeError, ValueError):
+            pass
+    taken: set[str] = set()
+    for part in (DocPackage.COMMENTS_PART, DocPackage.DOC_PART):
+        for el in pkg.get_tree(part).iter():
+            v = el.get(f"{{{W14_NS}}}paraId")
+            if v:
+                taken.add(v.upper())
+    new_id = str(max(ids + [0, 899]) + 1)
+    c = etree.SubElement(cm, _q("comment"))
+    c.set(_q("id"), new_id); c.set(_q("author"), author); c.set(_q("date"), rev.date)
+    c.set(_q("initials"), (change.get("comment_initials") or author[:1]).upper())
+    cp = etree.SubElement(c, _q("p"))
+    pid = _rand_hex8(taken)
+    cp.set(f"{{{W14_NS}}}paraId", pid); cp.set(f"{{{W14_NS}}}textId", "77777777")
+    etree.SubElement(etree.SubElement(cp, _q("pPr")), _q("pStyle")).set(_q("val"), "CommentText")
+    r0 = etree.SubElement(cp, _q("r"))
+    etree.SubElement(etree.SubElement(r0, _q("rPr")), _q("rStyle")).set(_q("val"), "CommentReference")
+    etree.SubElement(r0, _q("annotationRef"))
+    r = etree.SubElement(cp, _q("r"))
+    for k, chunk in enumerate(text.replace("\\n", "\n").split("\n")):
+        if k:
+            etree.SubElement(r, _q("br"))
+        t = etree.SubElement(r, _q("t")); t.text = chunk
+        t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    if True:
+        ext = _ensure_comments_extended(pkg)
+        e = etree.SubElement(ext, f"{{{W15_NS}}}commentEx")
+        e.set(f"{{{W15_NS}}}paraId", pid); e.set(f"{{{W15_NS}}}done", "0")
+
+    # Anchors: direct children of <w:p> only.
+    kids = [k for k in p if k.tag != _q("pPr")]
+    start_el = kids[0] if kids else None
+    end_el = kids[-1] if kids else None
+    anchor = (change.get("anchor_text", "") or "").strip()
+    if anchor and anchor in _para_text(p):
+        off = _para_text(p).index(anchor)
+        tmap = _build_text_run_map(p)
+        def top(el):
+            while el.getparent() is not p:
+                el = el.getparent()
+            return el
+        hits = [t for (t, a, b) in tmap if b > off and a < off + len(anchor)]
+        if hits:
+            start_el, end_el = top(hits[0]), top(hits[-1])
+    rs = etree.Element(_q("commentRangeStart")); rs.set(_q("id"), new_id)
+    re_ = etree.Element(_q("commentRangeEnd")); re_.set(_q("id"), new_id)
+    ref = etree.Element(_q("r"))
+    etree.SubElement(etree.SubElement(ref, _q("rPr")), _q("rStyle")).set(_q("val"), "CommentReference")
+    etree.SubElement(ref, _q("commentReference")).set(_q("id"), new_id)
+    if start_el is None:
+        p.append(rs); p.append(re_); p.append(ref)
+    else:
+        start_el.addprevious(rs); end_el.addnext(re_); re_.addnext(ref)
+    pkg.mark_dirty(DocPackage.DOC_PART)
+    return True, f"{fid}: add_comment id={new_id} by {author!r}"
+
+
 # ----- core edit operation ---------------------------------------------------
-def _split_run_at(t_el: etree._Element, local_offset: int) -> tuple[etree._Element, etree._Element | None]:
+XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+
+
+def _split_run_at(t_el: etree._Element, local_offset: int) -> tuple[etree._Element | None, etree._Element | None]:
     """
     Split the parent run of `t_el` so that the first part contains text up to
     `local_offset` (exclusive) and the second part contains the rest. Returns
-    (left_run, right_run_or_None). The original run is replaced in its
+    (left_run_or_None, right_run_or_None). The original run is replaced in its
     parent. local_offset is in characters within t_el.text.
+
+    v0.8: a cut at offset 0 no longer clones an empty run (that clone used to
+    land inside a reviewer's <w:ins> at revision boundaries); it returns
+    (None, run) and leaves the tree untouched.
     """
     txt = t_el.text or ""
     if local_offset <= 0:
-        # Whole text moves to the right; return (None_left, original)
-        # But we need a left_run — return the run with empty text.
-        run = t_el.getparent()
-        # Create a left run by cloning run and emptying text
-        idx = run.getparent().index(run)
-        left = _clone(run)
-        for tt in left.iter(_q("t")):
-            tt.text = ""
-        run.getparent().insert(idx, left)
-        return left, run
+        return None, t_el.getparent()
     if local_offset >= len(txt):
         # All text in left; right is empty
         return t_el.getparent(), None
@@ -1302,11 +1481,8 @@ def _split_run_at(t_el: etree._Element, local_offset: int) -> tuple[etree._Eleme
     idx = parent.index(run)
     left = _clone(run)
     right = _clone(run)
-    # Find corresponding t in clones (same xpath position)
-    # Simple approach: assume single <w:t> per run for split. If multi-t,
-    # split the matching t in each clone and clear surrounding text in the
-    # opposite clone.
-    # Locate this t by enumerating
+    # Split the matching t in each clone and clear the surrounding text in
+    # the opposite clone (handles runs with several <w:t>).
     src_ts = list(run.iter(_q("t")))
     t_idx = src_ts.index(t_el)
     left_ts = list(left.iter(_q("t")))
@@ -1317,14 +1493,528 @@ def _split_run_at(t_el: etree._Element, local_offset: int) -> tuple[etree._Eleme
         elif j == t_idx:
             lt.text = txt[:local_offset]
             rt.text = txt[local_offset:]
-            lt.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-            rt.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+            lt.set(XML_SPACE, "preserve")
+            rt.set(XML_SPACE, "preserve")
         else:
             lt.text = ""
     parent.remove(run)
     parent.insert(idx, right)
     parent.insert(idx, left)
     return left, right
+
+
+def _split_at_offset(p: etree._Element, offset: int) -> None:
+    """Split the run holding paragraph-text `offset` so a run boundary falls
+    exactly there. No-op when a boundary already exists (never makes empty runs)."""
+    for t_el, s, e in _build_text_run_map(p):
+        if s < offset < e:
+            _split_run_at(t_el, offset - s)
+            return
+
+
+def _locate_span(para_text: str, before: str) -> tuple[int, int] | None:
+    """Exact match first, then a whitespace-relaxed match. Returns (pos, end)."""
+    pos = para_text.find(before)
+    if pos >= 0:
+        return pos, pos + len(before)
+    norm = re.sub(r"\s+", " ", para_text)
+    nbefore = re.sub(r"\s+", " ", before)
+    npos = norm.find(nbefore)
+    if npos < 0:
+        return None
+    i = running = 0
+    while i < len(para_text) and running < npos:
+        if para_text[i].isspace():
+            while i < len(para_text) and para_text[i].isspace():
+                i += 1
+        else:
+            i += 1
+        running += 1
+    pos = end = i
+    running = 0
+    while end < len(para_text) and running < len(nbefore):
+        if para_text[end].isspace():
+            while end < len(para_text) and para_text[end].isspace():
+                end += 1
+        else:
+            end += 1
+        running += 1
+    return pos, end
+
+
+# Elements that carry visible inline content inside a paragraph / container.
+_INLINE_CONTENT_TAGS = {_q(t) for t in ("r", "ins", "del", "hyperlink", "smartTag", "fldSimple",
+                                         "sdt", "moveTo", "moveFrom", "customXml")}
+# Containers we step out of when the edit sits at their very end, so a
+# replacement is not swallowed into (say) a hyperlink pointing at the old target.
+_LINK_CONTAINERS = {_q(t) for t in ("hyperlink", "smartTag", "fldSimple", "customXml")}
+_MARKER_ONLY_RUN_CHILDREN = {_q(t) for t in ("rPr", "commentReference", "annotationRef")}
+
+
+def _is_content(el: etree._Element) -> bool:
+    if el.tag not in _INLINE_CONTENT_TAGS:
+        return False
+    if el.tag == _q("r"):
+        return any(c.tag not in _MARKER_ONLY_RUN_CHILDREN for c in el)
+    return True
+
+
+def _has_content_after(el: etree._Element) -> bool:
+    nxt = el.getnext()
+    while nxt is not None:
+        if _is_content(nxt):
+            return True
+        nxt = nxt.getnext()
+    return False
+
+
+def _place_after(anchor: etree._Element, new_el: etree._Element, p: etree._Element) -> None:
+    """Insert new_el right after anchor. Steps out of hyperlink-like containers
+    only when anchor is their last content; a reviewer's <w:ins> is NOT stepped
+    out of here (the nested-ins hoist pass splits it so position stays exact)."""
+    cur = anchor
+    while True:
+        par = cur.getparent()
+        if par is None or par is p:
+            break
+        if par.tag in _LINK_CONTAINERS and not _has_content_after(cur):
+            cur = par
+            continue
+        break
+    cur.addnext(new_el)
+
+
+def _wrap_runs_in_del(runs: list[etree._Element], rev: RevisionFactory) -> list[etree._Element]:
+    """Wrap each run in <w:del> IN PLACE; adjacent sibling runs share one <w:del>.
+    Comment range markers, comment-reference runs, bookmarks, proofErr and
+    hyperlink boundaries between/around the runs stay exactly where they were."""
+    groups: list[list[etree._Element]] = []
+    for run in runs:
+        if groups and run.getparent() is groups[-1][-1].getparent() and groups[-1][-1].getnext() is run:
+            groups[-1].append(run)
+        else:
+            groups.append([run])
+    dels = []
+    for grp in groups:
+        parent = grp[0].getparent()
+        idx = parent.index(grp[0])
+        d = rev.stamp("del")
+        for run in grp:
+            parent.remove(run)
+            for t in run.findall(_q("t")):
+                t.tag = _q("delText")
+                t.set(XML_SPACE, "preserve")
+            for it in run.findall(_q("instrText")):
+                it.tag = _q("delInstrText")
+            d.append(run)
+        parent.insert(idx, d)
+        dels.append(d)
+    return dels
+
+
+def _has_ancestor(el: etree._Element, tags: set[str], stop: etree._Element) -> bool:
+    anc = el.getparent()
+    while anc is not None and anc is not stop:
+        if anc.tag in tags:
+            return True
+        anc = anc.getparent()
+    return False
+
+
+def _maybe_delete_para_mark(p: etree._Element, rev: RevisionFactory) -> str:
+    """A delete that empties a paragraph also deletes its paragraph mark (as Word
+    does), so accepting leaves no blank line. Kept when the mark already carries
+    a revision, when visible non-text content remains, or when p is the last
+    paragraph of its container (cell/body must end in a paragraph)."""
+    if _para_text(p) != "":
+        return ""
+    for tag in ("drawing", "pict", "object"):
+        for el in p.iter(_q(tag)):
+            if not _has_ancestor(el, {_q("del")}, p):
+                return " (paragraph mark kept: non-text content remains)"
+    nxt = p.getnext()
+    while nxt is not None and nxt.tag not in (_q("p"), _q("tbl"), _q("sdt")):
+        nxt = nxt.getnext()
+    if nxt is None or nxt.tag != _q("p"):
+        return " (paragraph mark kept: last paragraph in its container)"
+    ppr = p.find(_q("pPr"))
+    if ppr is None:
+        ppr = etree.Element(_q("pPr"))
+        p.insert(0, ppr)
+    rpr = ppr.find(_q("rPr"))
+    if rpr is not None and any(rpr.find(_q(t)) is not None for t in ("ins", "del", "moveFrom", "moveTo")):
+        return " (paragraph mark kept: it carries an existing revision)"
+    if rpr is None:
+        rpr = etree.Element(_q("rPr"))
+        later = [c for c in ppr if c.tag in (_q("sectPr"), _q("pPrChange"))]
+        if later:
+            later[0].addprevious(rpr)
+        else:
+            ppr.append(rpr)
+    rpr.insert(0, rev.stamp("del"))
+    return " (paragraph mark deleted)"
+
+
+def _italic_rpr(base: etree._Element | None = None) -> etree._Element:
+    rpr = _clone(base) if base is not None else etree.Element(_q("rPr"))
+    for tag in ("i", "iCs"):
+        if rpr.find(_q(tag)) is None:
+            etree.SubElement(rpr, _q(tag))
+    return rpr
+
+
+def _truthy(v: str | None) -> bool:
+    return (v or "").strip().lower() in ("1", "true", "yes", "y", "on")
+
+
+_NO_SPACE_BEFORE = set(".,;:!?)]}’”")
+
+
+def _apply_insert_at_end(p: etree._Element, change: dict[str, str], rev: RevisionFactory) -> tuple[bool, str]:
+    """Append after_text at the TRUE end of the paragraph (after any trailing
+    reviewer <w:ins>, hyperlink or comment marker), with a separating space when
+    the paragraph text does not already end in whitespace."""
+    fid = change.get("feedback_id", "?")
+    text = (change.get("after_text", "") or "").strip()
+    cur = _para_text(p)
+    if cur and not cur[-1].isspace() and text[0] not in _NO_SPACE_BEFORE:
+        text = " " + text
+    ins = rev.make_ins(text, _italic_rpr() if _truthy(change.get("italic")) else None)
+    content = [k for k in p if k.tag != _q("pPr")]
+    if content:
+        content[-1].addnext(ins)
+    else:
+        p.append(ins)
+    return True, f"{fid}: inserted {text!r} at paragraph end"
+
+
+def _apply_delete_replace(p: etree._Element, change: dict[str, str], rev: RevisionFactory) -> tuple[bool, str]:
+    fid = change.get("feedback_id", "?")
+    ctype = change["change_type"].strip().lower()
+    before = (change.get("before_text", "") or "").strip()
+    after = (change.get("after_text", "") or "").strip()
+    para_text = _para_text(p)
+
+    if ctype == "delete":
+        # Trailing whitespace on a delete is intentional (avoids a double space).
+        raw = (change.get("before_text", "") or "").lstrip()
+        if raw != before and raw in para_text:
+            before = raw
+    span = _locate_span(para_text, before)
+    if span is None:
+        return False, f"{fid}: before_text not found in paragraph: {before!r}"
+    pos, end = span
+    actual_before = para_text[pos:end]
+    if ctype == "delete" and actual_before and pos < end:
+        # Never leave a double space or a stray edge space behind.
+        left_edge = pos == 0 or para_text[pos - 1].isspace()
+        if left_edge and end < len(para_text) and para_text[end] == " " and not actual_before[-1].isspace():
+            end += 1
+        elif end == len(para_text) and pos > 0 and para_text[pos - 1] == " " and not actual_before[0].isspace():
+            pos -= 1
+        actual_before = para_text[pos:end]
+
+    _split_at_offset(p, pos)
+    _split_at_offset(p, end)
+    middle: list[etree._Element] = []
+    for t_el, s, e in _build_text_run_map(p):
+        if s >= pos and e <= end and e > s:
+            run = t_el.getparent()
+            if run.tag != _q("r"):
+                return False, f"{fid}: text node parent is not a run"
+            if run not in middle:
+                middle.append(run)
+    if not middle:
+        return False, f"{fid}: no runs captured in [{pos},{end})"
+
+    first_rpr = middle[0].find(_q("rPr"))
+    first_rpr = _clone(first_rpr) if first_rpr is not None else None
+    dels = _wrap_runs_in_del(middle, rev)
+    note = f"{fid}: deleted {actual_before!r} ({len(dels)} w:del)"
+
+    if ctype == "replace":
+        ins = rev.make_ins(after, _clean_rpr(first_rpr, ("highlight",)))
+        _place_after(dels[-1], ins, p)
+        note = f"{fid}: replaced {actual_before!r} with {after!r} ({len(dels)} w:del)"
+    else:
+        note += _maybe_delete_para_mark(p, rev)
+    return True, note
+
+
+# ----- insert_paragraph (v0.8) ----------------------------------------------
+def _collect_paraids(p: etree._Element, pkg: DocPackage | None) -> set[str]:
+    taken: set[str] = set()
+    pat = re.compile(rb'paraId="([0-9A-Fa-f]{8})"')
+    if pkg is not None:
+        for name, data in pkg._parts.items():
+            if not name.endswith(".xml"):
+                continue
+            if name in pkg._trees:
+                for el in pkg._trees[name].iter():
+                    for k, v in el.attrib.items():
+                        if k.endswith("}paraId"):
+                            taken.add(v.upper())
+            else:
+                taken.update(m.decode().upper() for m in pat.findall(data))
+    for el in p.getroottree().getroot().iter():
+        v = el.get(f"{{{W14_NS}}}paraId")
+        if v:
+            taken.add(v.upper())
+    return taken
+
+
+def _fresh_paraid(p: etree._Element, rev: RevisionFactory, pkg: DocPackage | None) -> str:
+    if rev.taken_paraids is None:
+        rev.taken_paraids = _collect_paraids(p, pkg)
+    while True:
+        v = f"{rev.rng.randint(0x10000000, 0x7FFFFFFE):08X}"
+        if v not in rev.taken_paraids:
+            rev.taken_paraids.add(v)
+            return v
+
+
+def _default_para_style_id(pkg: DocPackage | None) -> str | None:
+    if pkg is None or not pkg.has(DocPackage.STYLES_PART):
+        return None
+    for s in pkg.get_tree(DocPackage.STYLES_PART).findall(_q("style")):
+        if s.get(_q("type")) == "paragraph" and s.get(_q("default")) in ("1", "true", "on"):
+            return s.get(_q("styleId"))
+    return _resolve_style_id(pkg, "Normal")
+
+
+def _find_para(locator: str, p: etree._Element, paras: list[etree._Element] | None) -> etree._Element | None:
+    locator = (locator or "").strip()
+    if not locator or locator.lower() in ("target", "self"):
+        return p
+    pool = paras if paras is not None else list(p.getroottree().getroot().iter(_q("p")))
+    pid_map = {q.get(f"{{{W14_NS}}}paraId"): q for q in pool if q.get(f"{{{W14_NS}}}paraId")}
+    r = _resolve_locator(locator, pool, {k: pool.index(v) for k, v in pid_map.items()})
+    return r[1] if r else None
+
+
+def _apply_insert_paragraph(
+    p: etree._Element,
+    change: dict[str, str],
+    rev: RevisionFactory,
+    pkg: DocPackage | None,
+    paras: list[etree._Element] | None,
+) -> tuple[bool, str]:
+    """Tracked NEW paragraph before/after the target paragraph.
+
+    Schema:
+      change_type: insert_paragraph
+      target_locator: <paraId or index>
+      after_text: the new paragraph's text
+      position: after | before            (default after)
+      sequence: 1                         (optional; orders several inserts on one target)
+      clone_ppr_from: <paraId>            (optional; default the target)
+      clone_ppr: no                       (optional; start from an empty pPr)
+      style_name: Normal                  (optional; if it differs from the cloned style, the pPr is reset to that style)
+      clone_rpr_from: target | <paraId>   (optional; first run's formatting for the new text)
+      italic_text: substring to italicise (optional; "none" = no italics)
+      italic: yes                         (optional; whole paragraph italic)
+
+    The paragraph mark is tracked as inserted by the author and the text sits in
+    <w:ins>. The cloned pPr is stripped of reviewer revision marks (pPrChange,
+    the paragraph-mark rPr) and any sectPr. Successive inserts on the
+    same target and position chain in file order (or `sequence` order)."""
+    fid = change.get("feedback_id", "?")
+    text = (change.get("after_text", "") or "").strip()
+    if not text:
+        return False, f"{fid}: insert_paragraph requires after_text"
+    position = (change.get("position", "after") or "after").strip().lower()
+    if position not in ("before", "after"):
+        return False, f"{fid}: insert_paragraph position must be before|after, got {position!r}"
+
+    src = _find_para(change.get("clone_ppr_from", ""), p, paras)
+    if src is None:
+        return False, f"{fid}: clone_ppr_from {change.get('clone_ppr_from')!r} not resolved"
+    src_ppr = src.find(_q("pPr"))
+    if src_ppr is not None and not _clone_ppr_disabled(change):
+        ppr = _clone(src_ppr)
+        for tag in ("pPrChange", "sectPr"):
+            for el in ppr.findall(_q(tag)):
+                ppr.remove(el)
+    else:
+        ppr = etree.Element(_q("pPr"))
+
+    style_note = ""
+    style_name = (change.get("style_name", "") or "").strip()
+    if style_name:
+        sid = _resolve_style_id(pkg, style_name) if pkg is not None else None
+        if sid is None:
+            style_note = f" (style {style_name!r} not found; kept cloned style)"
+        else:
+            default_sid = _default_para_style_id(pkg)
+            ps = ppr.find(_q("pStyle"))
+            cur_sid = ps.get(_q("val")) if ps is not None else default_sid
+            if sid != cur_sid:
+                ppr = etree.Element(_q("pPr"))
+                if sid != default_sid:
+                    etree.SubElement(ppr, _q("pStyle")).set(_q("val"), sid)
+
+    # Paragraph mark: drop the source mark's rPr entirely (it carries reviewer
+    # revisions and often stray highlight/char styles), then mark it inserted.
+    for el in ppr.findall(_q("rPr")):
+        ppr.remove(el)
+    etree.SubElement(ppr, _q("rPr")).append(rev.stamp("ins"))
+
+    new_p = etree.Element(_q("p"))
+    new_p.set(f"{{{W14_NS}}}paraId", _fresh_paraid(p, rev, pkg))
+    new_p.set(f"{{{W14_NS}}}textId", "77777777")
+    new_p.append(ppr)
+
+    base_rpr = None
+    rsrc_loc = (change.get("clone_rpr_from", "") or "").strip()
+    if rsrc_loc:
+        rsrc = _find_para(rsrc_loc, p, paras)
+        r0 = rsrc.find(".//" + _q("r")) if rsrc is not None else None
+        base_rpr = _clean_rpr(r0.find(_q("rPr"))) if r0 is not None else None
+    ital = (change.get("italic_text", "") or "").strip()
+    if ital.lower() == "none":
+        ital = ""
+    segs = [(text, _truthy(change.get("italic")))]
+    if ital:
+        i = text.find(ital)
+        if i < 0:
+            return False, f"{fid}: italic_text {ital!r} not in the new paragraph text"
+        segs = [(text[:i], False), (ital, True), (text[i + len(ital):], False)]
+    for seg, it in segs:
+        if seg:
+            new_p.append(rev.make_ins(seg, _italic_rpr(base_rpr) if it else base_rpr))
+
+    # Placement: chain per (target, position), ordered by sequence then file order.
+    raw_seq = (change.get("sequence", "") or "").strip()
+    placed = rev.para_chain.setdefault((id(p), position), [])
+    try:
+        seq = float(raw_seq) if raw_seq else None
+    except ValueError:
+        seq = None
+    if seq is None:
+        seq = max((s for s, _ in placed), default=0.0)
+    if position == "after":
+        anchor = p
+        for s, el in placed:
+            if s <= seq:
+                anchor = el
+        anchor.addnext(new_p)
+    else:
+        later = [el for s, el in placed if s > seq]
+        (later[0] if later else p).addprevious(new_p)
+    placed.append((seq, new_p))
+    placed.sort(key=lambda t: t[0])  # stable: ties keep file order
+    return True, f"{fid}: inserted paragraph {position} target (seq {seq:g}): {text[:60]!r}{style_note}"
+
+
+def _clone_ppr_disabled(change: dict[str, str]) -> bool:
+    v = (change.get("clone_ppr", "") or "").strip().lower()
+    return v in ("0", "no", "false", "off", "none")
+
+
+# ----- delete_footnote_ref (v0.8) -------------------------------------------
+def _apply_delete_footnote_ref(p: etree._Element, change: dict[str, str], rev: RevisionFactory) -> tuple[bool, str]:
+    """Tracked deletion of the in-body reference mark of footnote N.
+
+    Schema:
+      change_type: delete_footnote_ref
+      target_locator: <paraId>       (paragraph holding the mark; whole body searched as fallback)
+      footnote_id: 3
+    Wraps the run holding <w:footnoteReference w:id=N> in an author <w:del>.
+    footnotes.xml is not touched (the body goes when the reference is accepted)."""
+    fid = change.get("feedback_id", "?")
+    fn = (change.get("footnote_id", "") or "").strip()
+    if not fn:
+        return False, f"{fid}: delete_footnote_ref requires footnote_id"
+    scopes = [p]
+    root = p.getroottree().getroot()
+    if root is not p:
+        scopes.append(root)
+    for scope in scopes:
+        for fr in scope.iter(_q("footnoteReference")):
+            if fr.get(_q("id")) != fn:
+                continue
+            run = fr.getparent()
+            if _has_ancestor(run, {_q("del"), _q("moveFrom")}, root):
+                return False, f"{fid}: footnote ref {fn} already inside a deletion"
+            d = rev.stamp("del")
+            run.addprevious(d)
+            d.append(run)
+            where = "" if scope is p else " (found outside target paragraph)"
+            return True, f"{fid}: tracked deletion of footnoteReference {fn}{where}"
+    return False, f"{fid}: footnoteReference {fn} not found"
+
+
+# ----- post-pass: hoist nested insertions (v0.8) ----------------------------
+def hoist_nested_ins(root: etree._Element, rev: RevisionFactory) -> int:
+    """Hoist any author <w:ins> nested inside ANOTHER author's <w:ins> out into a
+    sibling, splitting the outer insertion around it (Word's own form). Arises
+    when a replace lands inside reviewer-inserted text."""
+    n = 0
+    changed = True
+    while changed:
+        changed = False
+        for inner in root.iter(_q("ins")):
+            par = inner.getparent()
+            if (par is None or par.tag != _q("ins") or inner.get(_q("author")) != rev.author
+                    or par.get(_q("author")) == rev.author):
+                continue
+            kids = list(par)
+            k = kids.index(inner)
+            before, after = kids[:k], kids[k + 1:]
+            if after:
+                tail = etree.Element(_q("ins"), attrib=dict(par.attrib))
+                tail.set(_q("id"), rev._id())
+                for c in after:
+                    tail.append(c)
+                par.addnext(tail)
+            par.addnext(inner)
+            if not before:
+                par.getparent().remove(par)
+            n += 1
+            changed = True
+            break
+    return n
+
+
+# ----- change-block normalisation (v0.8) ------------------------------------
+def normalise_change(ch: dict[str, str]) -> dict[str, str]:
+    """Map backward-compatible aliases onto the canonical schema.
+
+    - `insert` + `new_paragraph: after|before`  -> insert_paragraph (position)
+    - `comment-only` + `new_paragraph_after: <paraId>` + `new_paragraph_text`
+                                                  -> insert_paragraph after that paraId
+    - `new_paragraph_text` -> after_text, `slot_order` -> sequence, `style` -> style_name,
+      `paragraph_style: same as <paraId>` -> clone_ppr_from (else style_name)
+    Idempotent."""
+    ch = dict(ch)
+    ct = (ch.get("change_type", "") or "").strip().lower()
+    np = (ch.get("new_paragraph", "") or "").strip().lower()
+    if ct == "insert" and np in ("after", "before"):
+        ct = "insert_paragraph"
+        ch.setdefault("position", np)
+        if not (ch.get("position") or "").strip():
+            ch["position"] = np
+    if ct == "comment-only" and (ch.get("new_paragraph_after", "") or "").strip() \
+            and (ch.get("new_paragraph_text", "") or "").strip():
+        ct = "insert_paragraph"
+        ch["target_locator"] = ch["new_paragraph_after"].split()[0]
+        ch["position"] = "after"
+    if ct == "insert_paragraph":
+        if not (ch.get("after_text", "") or "").strip() and (ch.get("new_paragraph_text", "") or "").strip():
+            ch["after_text"] = ch["new_paragraph_text"]
+        if not (ch.get("sequence", "") or "").strip() and (ch.get("slot_order", "") or "").strip():
+            ch["sequence"] = ch["slot_order"]
+        if not (ch.get("style_name", "") or "").strip() and (ch.get("style", "") or "").strip():
+            ch["style_name"] = ch["style"]
+        ps = (ch.get("paragraph_style", "") or "").strip()
+        if ps:
+            m = re.match(r"^same as\s+([0-9A-Fa-f]{8})\b", ps, re.IGNORECASE)
+            if m:
+                ch.setdefault("clone_ppr_from", m.group(1))
+            elif not (ch.get("style_name", "") or "").strip():
+                ch["style_name"] = ps
+    ch["change_type"] = ct
+    return ch
 
 
 def apply_change(
@@ -1342,13 +2032,19 @@ def apply_change(
     (footnote, insert_image, insert_table, apply_style). The legacy types
     (insert/delete/replace/comment-only) ignore them.
     """
-    ctype = change["change_type"].strip().lower()
+    change = normalise_change(change)
+    ctype = change["change_type"]
     before = change.get("before_text", "").strip()
     after = change.get("after_text", "").strip()
     fid = change.get("feedback_id", "?")
 
     if ctype == "comment-only":
         return False, f"{fid}: comment-only — no doc edit applied"
+
+    if ctype == "insert_paragraph":
+        return _apply_insert_paragraph(p, change, rev, pkg, paras)
+    if ctype == "delete_footnote_ref":
+        return _apply_delete_footnote_ref(p, change, rev)
 
     # v0.3 types
     if ctype == "footnote":
@@ -1367,6 +2063,10 @@ def apply_change(
         if pkg is None:
             return False, f"{fid}: apply_style requires DocPackage context"
         return _apply_style(p, change, rev, pkg)
+    if ctype == "add_comment":
+        if pkg is None:
+            return False, f"{fid}: add_comment requires DocPackage context"
+        return _apply_add_comment(p, change, rev, pkg)
     if ctype == "reply_comment":
         if pkg is None:
             return False, f"{fid}: reply_comment requires DocPackage context"
@@ -1395,164 +2095,9 @@ def apply_change(
     if ctype in ("insert", "replace") and not after:
         return False, f"{fid}: change_type={ctype} requires after_text"
 
-    para_text = _para_text(p)
-
     if ctype == "insert":
-        # Insert at end of paragraph (default). For richer anchoring, we'd
-        # accept an `insert_after_text` field; v0.2 keeps it simple.
-        # Find last <w:r> direct child to append after; if none, append <w:r>
-        last_run = None
-        for child in p:
-            if child.tag == _q("r"):
-                last_run = child
-        ins = rev.make_ins(after)
-        if last_run is not None:
-            last_run.addnext(ins)
-        else:
-            p.append(ins)
-        return True, f"{fid}: inserted {after!r} at paragraph end"
-
-    # delete or replace: locate `before` in para_text
-    pos = para_text.find(before)
-    if pos < 0:
-        # try a relaxed match (collapse whitespace)
-        norm = re.sub(r"\s+", " ", para_text)
-        nbefore = re.sub(r"\s+", " ", before)
-        npos = norm.find(nbefore)
-        if npos < 0:
-            return False, f"{fid}: before_text not found in paragraph: {before!r}"
-        # rebuild original-pos approximately by re-scanning whitespace runs
-        # (good enough — we accept the relaxed match start)
-        # walk para_text counting matched normalised positions
-        i = 0
-        running = 0
-        while i < len(para_text) and running < npos:
-            if para_text[i].isspace():
-                # collapse
-                while i < len(para_text) and para_text[i].isspace():
-                    i += 1
-                running += 1
-            else:
-                i += 1
-                running += 1
-        pos = i
-        # adjust before to actual substring length in original
-        # simplest: take a slice of the same normalised length, then expand
-        # to next non-whitespace boundary
-        end = pos
-        running2 = 0
-        target_len = len(nbefore)
-        while end < len(para_text) and running2 < target_len:
-            if para_text[end].isspace():
-                while end < len(para_text) and para_text[end].isspace():
-                    end += 1
-                running2 += 1
-            else:
-                end += 1
-                running2 += 1
-        actual_before = para_text[pos:end]
-    else:
-        actual_before = before
-
-    end = pos + len(actual_before)
-
-    # Now perform the deletion in-tree by walking the run-text map and
-    # surgically splitting runs at pos and end.
-    # Rebuild the map at each split because element identities change.
-    trmap = _build_text_run_map(p)
-    # find t containing `pos`
-    target_t_left = None
-    local_off_left = 0
-    for t_el, s, e in trmap:
-        if s <= pos < e:
-            target_t_left = t_el
-            local_off_left = pos - s
-            break
-        if pos == e:  # at exact boundary: next t is fine
-            target_t_left = t_el
-            local_off_left = pos - s
-
-    if target_t_left is None:
-        return False, f"{fid}: failed to locate run for pos={pos}"
-
-    # Split at pos
-    left_run, right_run = _split_run_at(target_t_left, local_off_left)
-    # Now split at end. Recompute trmap
-    trmap = _build_text_run_map(p)
-    target_t_right = None
-    local_off_right = 0
-    for t_el, s, e in trmap:
-        if s <= end < e:
-            target_t_right = t_el
-            local_off_right = end - s
-            break
-        if end == e:
-            target_t_right = t_el
-            local_off_right = end - s
-
-    if target_t_right is None:
-        return False, f"{fid}: failed to locate run for end={end}"
-
-    # If the right-cut is at the start of the same t, splitting at offset 0 is fine
-    _split_run_at(target_t_right, local_off_right)
-
-    # After both splits, the runs whose text falls in [pos,end) are the
-    # "middle" runs. We collect them by walking the paragraph text-map again
-    # and selecting runs whose offsets are entirely inside [pos,end).
-    trmap = _build_text_run_map(p)
-    middle_runs: list[etree._Element] = []
-    for t_el, s, e in trmap:
-        if s >= pos and e <= end and e > s:
-            run = t_el.getparent()
-            if run not in middle_runs:
-                middle_runs.append(run)
-
-    if not middle_runs:
-        return False, f"{fid}: no runs captured in [{pos},{end})"
-
-    # Wrap the middle runs in <w:del> and convert <w:t> to <w:delText>.
-    # Each run may have a different parent (e.g. inside <w:hyperlink>) — we
-    # use each run's own parent when detaching, and place the <w:del> at the
-    # position of the FIRST middle run within ITS parent.
-    first_parent = middle_runs[0].getparent()
-    insert_idx = first_parent.index(middle_runs[0])
-
-    delel = etree.SubElement(etree.Element("dummy"), _q("del"))
-    delel.set(_q("id"), rev._id())
-    delel.set(_q("author"), rev.author)
-    delel.set(_q("date"), rev.date)
-
-    for run in middle_runs:
-        rPr = run.find(_q("rPr"))
-        new_run = etree.SubElement(delel, _q("r"))
-        if rPr is not None:
-            new_run.append(_clone(rPr))
-        orig_text = "".join(tt.text or "" for tt in run.iter(_q("t")))
-        delText = etree.SubElement(new_run, _q("delText"))
-        delText.text = orig_text
-        delText.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-        # remove the original run from its actual parent
-        run_parent = run.getparent()
-        if run_parent is not None:
-            run_parent.remove(run)
-
-    delel.getparent().remove(delel)  # detach from dummy
-    first_parent.insert(insert_idx, delel)
-
-    note = f"{fid}: deleted {actual_before!r}"
-
-    if ctype == "replace":
-        # Insert the after_text immediately after the <w:del>
-        # Use rPr of the first cloned run if available
-        rPr_for_ins = None
-        first_r = delel.find(_q("r"))
-        if first_r is not None:
-            rPr_for_ins = first_r.find(_q("rPr"))
-        ins = rev.make_ins(after, rPr_for_ins)
-        delel.addnext(ins)
-        note = f"{fid}: replaced {actual_before!r} with {after!r}"
-
-    return True, note
+        return _apply_insert_at_end(p, change, rev)
+    return _apply_delete_replace(p, change, rev)
 
 
 # ----- main pipeline ---------------------------------------------------------
@@ -1590,7 +2135,8 @@ def apply(
     resolved: list[tuple[int, etree._Element, dict[str, str]]] = []
     notes: list[str] = []
     for ch in changes:
-        ctype = (ch.get("change_type", "") or "").strip().lower()
+        ch = normalise_change(ch)
+        ctype = ch["change_type"]
         if ctype == "reply_comment":
             resolved.append((-2, body, ch))  # after edits, before removals
             continue
@@ -1633,6 +2179,12 @@ def apply(
         else:
             skipped_count += 1
             _info(f"skipped @para {idx}: {note}")
+
+    hoisted = hoist_nested_ins(tree, rev)
+    if hoisted:
+        note = f"post-pass: hoisted {hoisted} author insertion(s) out of another author's <w:ins>"
+        notes.append(note)
+        _info(note)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     pkg.write(out_path)
