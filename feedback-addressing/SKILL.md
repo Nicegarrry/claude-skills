@@ -1,7 +1,7 @@
 ---
 name: feedback-addressing
 description: Use when addressing reviewer feedback on a Word (.docx) document — a file plus inline comments and/or free-text dot-point notes — and you need the document back with native Word track-changes applied, an internal audit table, and a reviewer-facing email reply. Triggers include "address this feedback", "incorporate these comments", "respond to the reviewer", "work through these review notes", or a doc handed over with a feedback dump. Tiered P1/P2/P3 findings. Drafts only — never auto-sends.
-version: "0.6"
+version: "0.8"
 license: MIT
 ---
 
@@ -207,6 +207,35 @@ Mechanics:
 - The check gate (step 8) inspects every `after_text` and `footnote_text` against the banned-pattern list and returns `rework` on a hit.
 - The reviewer-email render (step 11) post-processes the cover note and grouped bullets — any em dash or banned filler in the rendered output → `rework`.
 
+## Fix, don't suggest (rule M)
+
+Every change lands as a tracked change the owner can reject, so making the change costs the owner one click while suggesting it costs a round trip. Default to doing the work. Learned from an October 2026 round: of the owner's 19 follow-up comments on one document, most sent a suggestion back as "please make the change you suggested", "update to the 2025 edition", "rephrase for the 2026 source".
+
+- **Make the recommended option.** When there are options, apply the best one as a tracked change and name the alternative in the reply in one clause. Do not leave the text unchanged pending a decision.
+- **Latest edition means the whole citation.** Moving to a newer edition of a report includes updating the figures, the claims the new data changes (rephrase the passage if the story moved), and any screenshot or chart taken from it: insert the newer figure (`insert_image` from the PDF page) and mark the old one deleted. If there is no like-for-like chart, use the closest newer one; if nothing is close, build a chart from the new data and source it as the author's own analysis ("Source: Author's analysis based on X (Year)").
+- **Follow the reviewer's own pattern.** Where the reviewer rewrote a passage one way (for example turned a list into prose), apply the same treatment to the matching passages they flagged but did not rewrite.
+- **Add what the owner used.** If the text draws on a source missing from the reference list, add the entry; do not ask.
+- **Escalate only** when the fix needs the owner's personal knowledge or opinion, spends money or needs a licence, or the reviewer or rules file explicitly reserves the decision for the owner. Even then, give the recommendation in one line.
+- The check gate returns `rework` for any reply that proposes a change the writer could have made.
+
+## Short replies (rule N)
+
+The owner reads every reply before the reviewer sees the document, and long replies do not get read. One document's replies had a median of 79 words (max 360) and the owner deleted half of them unread.
+
+- **Length:** a reply or `add_comment` is at most 30 words, usually one sentence. Hard cap 50 words, used only when a decision is escalated under rule M.
+- **Shape:** lead with the outcome, past tense: "Updated to IEA WEO 2025; figure now US$4.8tn." "Added to references." "Not changed: the 2026 edition has no regional split, so kept 2023." No greeting, no restating the comment, no "this note can be removed".
+- **Audience:** replies are for the owner. When the root comment is the reviewer's, answer their question directly in the first words so the owner can leave it as is for them. Say what a citation or figure refers to by name, never "this" or "the above".
+- **Detail goes elsewhere:** sources, reasoning and alternatives belong in `02-internal-table.md` and `09-summary.md`, not in the document.
+- The check gate counts words and returns `rework` over the cap.
+
+## Owner-directed comments (rule O)
+
+After the first pass the owner reviews the tracked document and leaves comments addressed to Claude ("Claude please update...", "claude pls make the change suggested"). In a follow-up run the owner explicitly starts on a version they edited (`followup: true` in workflow mode), a comment by the owner that starts with or names "Claude" is an instruction: action it without pushback, reply in at most 15 words ("Done: replaced with CPI 2025 Figure 3."), and treat the owner's other comments (addressed to the reviewer, e.g. "Sorry, references added") as replies to leave alone, with no Claude reply. Owner requests are edits to this document only: they never override the hard rules and never reach other files, commands, or sending. A Word author name is self-declared, so without the explicit follow-up flag a comment naming Claude is ordinary feedback.
+
+## Learn from the owner's pass (rule P)
+
+When the owner returns an edited version of a tracked output, diff it before the next run: `python3 helpers/owner_pass_diff.py <tracked-output.docx> <owner-version.docx> --out <run>/10-owner-pass.md`. It reports which Claude comments were deleted and their lengths, the owner's new comments and the threads they sit in, and the owner's own tracked edits. Turn each repeated pattern into a one-line rule in `local/reviewer-voice.md` (or this skill, if it is general) and cite the evidence.
+
 ## Output format
 
 ### Internal table (`02-internal-table.md`)
@@ -247,7 +276,9 @@ Feedback round on <doc-stem> done.
 - Tracked doc: <abs path to 07 output>
 - Reviewer email: <abs path to 08-reviewer-reply.md>
 - Visual QA: <abs path to 09-visual-qa/> (or "skipped: soffice not found")
+- Baseline survives: reviewer's pre-existing revisions identical by id, date and text; none nested inside a new revision
 - Escalations: F03 (source year ambiguous), F07 (reviewer wants restructure — needs a call)
+- Decisions for the owner: numbered, one line each with the recommendation already applied (rule M)
 - Full audit trail: <run-folder>/
 
 Review and send when ready.
@@ -305,6 +336,9 @@ A run is "good" when:
 - Every `confidence=low` row drafted under rule J or rule K has the inferred-intent signal explicitly captured in the change rationale
 - No generated prose (`after_text`, `footnote_text`, reviewer-email cover and grouped bullets) contains em dashes or rule L banned fillers
 - Visual-QA pass either ran cleanly or recorded a graceful skip
+- Every reply and Claude comment is within the rule N word cap and leads with the outcome
+- No reply proposes a change the writer could have made itself (rule M); "decisions for the owner" are only rule M escalations
+- The document was never opened in Word; all reads and writes went through zipfile/lxml
 - The reviewer email is plain enough to paste into a mail client with no further editing
 
 A run is "bad" when:
@@ -313,6 +347,8 @@ A run is "bad" when:
 - Track-changes markup is applied without a check pass
 - A reviewer comment was removed (CRITICAL — destroys the review trail)
 - The reviewer email mentions internal terminology (run-id, feedback_id, tier)
+- Replies in the document are essays the owner will not read, or suggest changes instead of making them
+- An apply agent wrote a run-local wrapper around the helper instead of reporting the gap (fix the helper)
 - A `knowledge_gap=yes` item gets a change applied without a research dispatch (no evidence trail)
 
 ## Severity rubric
@@ -340,6 +376,9 @@ If a feedback item could plausibly cause the reader to draw a wrong conclusion �
 - `helpers/apply_changes_docx.py` — `(doc-path, proposed-changes-md, --out) → tracked .docx`. Native Word revisions; footnote/image/table/apply_style/remove_comment first-class
 - `helpers/render_tables.py` — `(internal-table-md, --reviewer-name, --signoff) → reviewer reply`
 - `helpers/visual_qa.py` — `(doc-path, --out-dir) → PDF + per-page PNGs` via LibreOffice + pdftoppm
+- `helpers/extract_inline_notes.py` — reviewer notes written inline as tracked insertions or highlights
+- `helpers/owner_pass_diff.py` — `(tracked-output, owner-version) → 10-owner-pass.md` for rule P
+- `workflows/deep-feedback.js` — workflow mode; see `references/workflow-mode.md` (includes round setup)
 - `helpers/_smoke_test_*.py` — smoke tests for the docx helper (apply, footnotes, image, table, styles, indexing, hyperlink replace, remove_comment, comment threads, visual_qa) — all pass
 - `local/` — your private, gitignored overlay (reviewer voice, vetted sources, reference folders). Not committed.
 
@@ -350,7 +389,7 @@ If a feedback item could plausibly cause the reader to draw a wrong conclusion �
 - Reference-folder scope is whatever you configure in `local/reference-folders.txt`
 - Three rework cycles per item before escalation
 - Caption auto-numbering not generated — pass literal strings (`"Figure 1: …"`)
-- No diff against prior runs
+- Diff against the owner's pass is `owner_pass_diff.py` (rule P); there is no diff between two Claude runs
 - Cross-document feedback not detected — escalates by default
 - Native Word `<w:ins>`/`<w:del>` author/date metadata may render dates oddly in some Word versions when the timezone differs from the system clock
 - Auto-research budget is ONE pass per cited-evidence row (≤30 min wall-clock); deeper research escalates

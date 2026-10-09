@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory() as d:
     with zipfile.ZipFile(src,"w") as z:
         for n,v in (("[Content_Types].xml",CT),("_rels/.rels",RR),("word/_rels/document.xml.rels",DR),("word/document.xml",DOC)): z.writestr(n,v)
     (d/"c.md").write_text(CH); out=d/"o.docx"
-    a,s,notes=apply(src,d/"c.md",out,"Nick Pinidiya","2026-10-03T00:00:00Z")
+    a,s,notes=apply(src,d/"c.md",out,"Owner","2026-10-03T00:00:00Z")
     assert a==2, notes
     z=zipfile.ZipFile(out); doc=z.read("word/document.xml").decode()
     assert "comments.xml" in z.read("word/_rels/document.xml.rels").decode()
