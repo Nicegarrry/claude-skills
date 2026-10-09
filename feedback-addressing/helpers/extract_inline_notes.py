@@ -16,7 +16,8 @@ def ptext(p):
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("doc"); ap.add_argument("--owner", default="")
     a = ap.parse_args()
-    root = etree.fromstring(zipfile.ZipFile(a.doc).read("word/document.xml"))
+    root = etree.fromstring(zipfile.ZipFile(a.doc).read("word/document.xml"),
+                           etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False))
     body = root.find(q("body")); rows = []; n = 0
     for idx, p in enumerate(body.iter(q("p"))):
         pid = p.get(q("paraId", W14)); full = ptext(p)

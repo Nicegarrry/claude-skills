@@ -22,13 +22,16 @@ from collections import Counter
 
 from lxml import etree
 
+# Inputs are untrusted .docx files: never resolve entities or load DTDs (XXE).
+SAFE = etree.XMLParser(resolve_entities=False, no_network=True, load_dtd=False)
+
 W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 W14 = "{http://schemas.microsoft.com/office/word/2010/wordml}"
 W15 = "{http://schemas.microsoft.com/office/word/2012/wordml}"
 
 
 def _xml(z: zipfile.ZipFile, name: str):
-    return etree.fromstring(z.read(name)) if name in z.namelist() else None
+    return etree.fromstring(z.read(name), SAFE) if name in z.namelist() else None
 
 
 def load(path: str) -> dict:
