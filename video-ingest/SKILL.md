@@ -1,15 +1,15 @@
 ---
-name: youtube-ingest
-description: Ingest a YouTube URL — pull metadata + transcript via yt-dlp, save the raw to `_sources/briefings/youtube/`, then write an AI-summary wiki note in `_wiki/ai-ingested/` with cross-links to relevant domain pages. Use when Nick drops a YouTube URL in Discord, mentions "ingest this video", or asks for a digest of something he's watching.
+name: video-ingest
+description: Ingest any video link (YouTube, Instagram reels, TikTok, X, Vimeo, Facebook, Loom, LinkedIn posts) — pull metadata + transcript (captions, else local whisper, else frames for silent video), save the raw to `_sources/briefings/video/`, then write an AI-summary wiki note in `_wiki/ai-ingested/` with cross-links to relevant domain pages. Use when Nick drops a video URL in Discord, mentions "ingest this video/reel", or asks for a digest of something he's watching.
 ---
 
-# youtube-ingest
+# video-ingest
 
-Capture a YouTube video as a permanent source + a structured AI digest, with reverse-links back into Nick's compiled wiki.
+Capture a video as a permanent source + a structured AI digest, with reverse-links back into Nick's compiled wiki. Keep the transcript, caption and frames, never the video. Audio is downloaded only to transcribe locally, then deleted.
 
 ## Inputs
 
-- A YouTube URL (`youtube.com/watch?v=…`, `youtu.be/…`, `youtube.com/shorts/…`).
+- A video URL yt-dlp can read: YouTube (`watch`, `youtu.be`, `shorts`), Instagram reels/posts, TikTok, X/Twitter, Vimeo, Facebook/`fb.watch`, Loom, LinkedIn posts.
 - Optional Nick context ("listening to this for AI builds work", "for teaching unit 5") — use to bias the cross-link target.
 
 ## Prerequisites
@@ -17,44 +17,57 @@ Capture a YouTube video as a permanent source + a structured AI digest, with rev
 ```bash
 brew upgrade yt-dlp 2>/dev/null || brew install yt-dlp   # stale yt-dlp breaks often
 command -v uvx >/dev/null || brew install uv
+ffmpeg -version >/dev/null 2>&1 || brew reinstall ffmpeg   # brew updates can break its dylibs
+command -v whisper >/dev/null || brew install openai-whisper   # models cache in ~/.cache/whisper
 ```
 
-No ffmpeg on this machine: never pass `--convert-subs` (it errors out). The dedupe parser reads SRT or VTT, stdlib only.
+The dedupe parser reads SRT or VTT, stdlib only.
 
-**If yt-dlp returns "Video unavailable" on first try:** YouTube changes its default extractor frequently. Retry with explicit player clients before giving up:
+**Login walls** (common on Instagram: "login required" or "empty media response"): add `--cookies-from-browser chrome` to every yt-dlp call. Private accounts need Chrome signed in to an account that can see them.
 
-```bash
-yt-dlp ... --extractor-args "youtube:player_client=web,ios,mweb" "$URL"
-```
-
-If both attempts fail, **double-check the video ID**. Common cause: `l` (lowercase L) vs `I` (capital i) in the URL — they look identical in most fonts. Confirm by hitting `https://www.youtube.com/oembed?url=<URL>&format=json` — `Not Found` means the ID itself is dead, ask Nick to re-paste.
+**YouTube "Video unavailable":** retry with `--extractor-args "youtube:player_client=web,ios,mweb"`. If that fails, **double-check the video ID** (`l` vs `I` look identical). `https://www.youtube.com/oembed?url=<URL>&format=json` returning `Not Found` means the ID is dead; ask Nick to re-paste.
 
 ## Flow
 
 ### 1. Pull metadata + transcript
 
 ```bash
-WORK=$(mktemp -d); ID=<11-char video id>
-yt-dlp --skip-download --write-info-json -o "$WORK/%(id)s.%(ext)s" "$URL"   # metadata only
+WORK=$(mktemp -d)
+yt-dlp --skip-download --write-info-json -o "$WORK/v.%(ext)s" "$URL"   # metadata only
 ```
 
-`<id>.info.json` has title, channel, upload date, duration, description, chapters.
+`v.info.json` has title, uploader, upload date, duration, description (the post caption on Instagram/TikTok/X), chapters.
 
-Transcript, first that works (yt-dlp's caption URL is often rate-limited by YouTube with HTTP 429; A uses a different endpoint):
+Transcript, first that works:
 
-- **A (default):** `uvx --from youtube-transcript-api youtube_transcript_api "$ID" --languages en --format srt > "$WORK/$ID.srt"`
-- **B:** `yt-dlp --skip-download --write-auto-sub --write-sub --sub-lang en -o "$WORK/%(id)s.%(ext)s" "$URL"` gives `$ID.en.vtt`
-- **C:** B with `--cookies-from-browser chrome`
-- All 429: wait 15 minutes, run A once more. Genuinely no captions: Whisper fallback (§3).
+- **A, YouTube only:** `uvx --from youtube-transcript-api youtube_transcript_api "<11-char id>" --languages en --format srt > "$WORK/v.srt"`. yt-dlp's YouTube caption URL is often rate-limited (HTTP 429); this endpoint is not.
+- **B, site captions:** `yt-dlp --skip-download --write-auto-sub --write-sub --sub-lang en -o "$WORK/v.%(ext)s" "$URL"` gives `v.en.vtt`. On YouTube, if 429, retry once with `--cookies-from-browser chrome`.
+- **C, local whisper** (no captions; reels and TikToks usually have none):
+  ```bash
+  yt-dlp -f bestaudio -x --audio-format m4a -o "$WORK/a.%(ext)s" "$URL"
+  whisper "$WORK/a.m4a" --model small.en --output_format srt --output_dir "$WORK" && rm "$WORK/a.m4a"
+  ```
+  Gives `a.srt` (a 60s reel takes under a minute). Non-English: `--model small`. Over 60 minutes: ask Nick first.
+
+### 1b. Frames for little or no speech
+
+Music over on-screen text, a product demo, or a short with a thin transcript: pull frames and read them as images.
+
+```bash
+yt-dlp -f "best[height<=720]/best" -o "$WORK/v.mp4" "$URL"
+ffmpeg -loglevel error -i "$WORK/v.mp4" -vf "fps=1/5,scale=720:-1" -frames:v 8 "$WORK/f%02d.jpg" && rm "$WORK/v.mp4"
+```
+
+Note on-screen text and what is shown, cited as `[frame N, ~mm:ss]`.
 
 ### 2. Normalise the transcript
 
-YouTube auto-caption SRT files use a **rolling-display format**: each cue's text appears in the next 1–2 cues again because the caption box scrolls line by line. A naive timestamp-stripper produces text repeated 3x. The parser below dedupes by *first appearance per unique line*, sentence-breaks the result, and stamps `[mm:ss]` markers every ~30s so the digest can cite quotes.
+Auto-caption files (YouTube especially) use a **rolling-display format**: each cue's text appears in the next 1–2 cues again because the caption box scrolls line by line. A naive timestamp-stripper produces text repeated 3x. The parser below dedupes by *first appearance per unique line*, sentence-breaks the result, and stamps `[mm:ss]` markers every ~30s so the digest can cite quotes.
 
 Run with the SRT path passed as `$1` and the output path as `$2`:
 
 ```bash
-python3 - "$WORK/<id>.srt or .en.vtt" "$WORK/transcript.txt" << 'PY'
+python3 - "$WORK/<v.srt | v.en.vtt | a.srt>" "$WORK/transcript.txt" << 'PY'
 import re, sys, pathlib
 src = pathlib.Path(sys.argv[1]).read_text()
 
@@ -112,36 +125,26 @@ pathlib.Path(sys.argv[2]).write_text(prose)
 PY
 ```
 
-**Why a parser, not awk/sed:** YouTube ships two distinct caption layouts — pre-recorded ("static") captions where each cue is one chunk of text, and auto-generated ("rolling") captions where each cue overlaps with neighbours. The parser handles both correctly because it dedupes on text content, not on cue position.
+**Why a parser, not awk/sed:** caption files come in two distinct caption layouts — pre-recorded ("static") captions where each cue is one chunk of text, and auto-generated ("rolling") captions where each cue overlaps with neighbours. The parser handles both correctly because it dedupes on text content, not on cue position.
 
-### 3. Whisper fallback (only if no captions)
+### 3. Save the source
 
-```bash
-yt-dlp -x --audio-format mp3 -o "$WORK/audio.%(ext)s" "$URL"
-# Local, free:
-whisper "$WORK/audio.mp3" --model base.en --output_format txt --output_dir "$WORK"
-# Or OpenAI API (~$0.006/min) if local whisper isn't installed.
-```
-
-Note in frontmatter `transcript-source: whisper-base.en` so quality is traceable.
-
-### 4. Save the source
-
-Filename: `_sources/briefings/youtube/YYYY-MM/YYYY-MM-DD-<channel-slug>-<title-slug>.md`
+Filename: `_sources/briefings/video/YYYY-MM/YYYY-MM-DD-<uploader-slug>-<title-slug>.md` (older YouTube sources live in `_sources/briefings/youtube/`; leave them)
 
 ```markdown
 ---
 type: source
-source-kind: youtube
-url: https://www.youtube.com/watch?v=…
+source-kind: video
+platform: youtube  # instagram, tiktok, x, vimeo, facebook, loom, linkedin
+url: …
 video-id: …
-channel: …
+channel: …  # uploader
 channel-url: …
 title: …
 duration: 47:12
 published: 2026-04-22
 captured: 2026-04-29
-transcript-source: youtube-transcript-api  # or: yt-dlp-captions, whisper-base.en
+transcript-source: youtube-transcript-api  # or: captions, whisper-small, frames-only
 nick-context: "listening live, AI-native company framing"
 ---
 
@@ -163,16 +166,17 @@ nick-context: "listening live, AI-native company framing"
 
 This file is **append-only** like every other source. Never re-edit.
 
-### 5. Analyse and write the AI-ingested wiki note
+### 4. Analyse and write the AI-ingested wiki note
 
 Filename: `_wiki/ai-ingested/YYYY-MM-DD-<title-slug>.md`
 
 ```markdown
 ---
 type: ai-ingested
-source: _sources/briefings/youtube/2026-04/2026-04-29-…md
-source-kind: youtube
-url: https://www.youtube.com/watch?v=…
+source: _sources/briefings/video/2026-04/2026-04-29-…md
+source-kind: video
+platform: youtube
+url: …
 title: …
 channel: …
 duration: 47:12
@@ -213,7 +217,7 @@ Why this matters given current projects. Be concrete: which project, which decis
 - Created stub `[[people/firstname-lastname]]` for the speaker
 ```
 
-### 6. Cross-link into compiled wiki
+### 5. Cross-link into compiled wiki
 
 For every entity mentioned (person, company, framework, project), follow the wiki-pages skill rules:
 
@@ -223,7 +227,7 @@ For every entity mentioned (person, company, framework, project), follow the wik
 
 Match-by-alias before creating any new entity (see `wiki-pages.md`). Ambiguous match → flag, don't guess.
 
-### 6b. Reflect into `reflections.md` (when relevant)
+### 5b. Reflect into `reflections.md` (when relevant)
 
 If the digest contains an insight that bears on **sidekick's own architecture** (folder structure, memory addressing, skill loading, dream cadence, the sources/wiki/outputs triad, agent-vs-routing model, etc.), do not bury it in the digest:
 
@@ -235,7 +239,7 @@ If the digest contains an insight that bears on **sidekick's own architecture** 
 
 This is how external evidence (videos, articles, talks) accumulates into sidekick's self-thinking instead of evaporating after the digest is written. Dream sweeps `reflections.md` nightly anyway; this just gets the evidence in the right section on first contact.
 
-### 7. Discord confirmation
+### 6. Discord confirmation
 
 Always reply in `#inbox` — never auto-post the digest to `#daily` or any domain channel. `#inbox` is the single confirmation surface so Nick can correct on the spot.
 
@@ -245,15 +249,15 @@ Append flags inline: missing captions, ambiguous entity matches, contradictions 
 
 ## Failure modes
 
-- **No captions and Whisper unavailable** → save the source with metadata only, mark `transcript-source: none`, write a minimal ai-ingested note flagging "transcript pending". Do not invent content.
-- **Age-restricted / region-blocked / private video** → `yt-dlp` exits non-zero. File a stub source with the URL + error, ping Nick.
+- **No captions, whisper failed, frames carry nothing** → save the source with metadata only, mark `transcript-source: none`, write a minimal ai-ingested note flagging "transcript pending". Do not invent content.
+- **Age-restricted / region-blocked / private video** → `yt-dlp` exits non-zero. Retry with `--cookies-from-browser chrome`; still failing, file a stub source with the URL + error, ping Nick.
 - **Live stream still in progress** → skip; ask Nick to re-drop after the stream ends.
-- **Non-English video** → use `--sub-lang <lang>,en` and translate in the digest only if Nick has asked for one. Otherwise file as source and flag.
+- **Non-English video** → `--sub-lang <lang>,en` for captions, `--model small` for whisper; translate in the digest only if Nick has asked for one. Otherwise file as source and flag.
 
 ## When NOT to ingest
 
-- Music videos / non-talk content — file as source only, skip digest.
-- Videos under ~3 minutes — usually not worth a wiki note; ask Nick first.
+- Music videos / entertainment with no ideas in it — file as source only, skip digest.
+- Short-form (reels, TikToks) — ingest when Nick drops it; keep the digest proportionate (TL;DR + key claims, skip empty sections).
 - Anything Nick flags as casual viewing rather than research.
 
 ## Logging
