@@ -15,10 +15,11 @@ Capture a YouTube video as a permanent source + a structured AI digest, with rev
 ## Prerequisites
 
 ```bash
-brew list yt-dlp >/dev/null 2>&1 || brew install yt-dlp
+brew upgrade yt-dlp 2>/dev/null || brew install yt-dlp   # stale yt-dlp breaks often
+command -v uvx >/dev/null || brew install uv
 ```
 
-If `yt-dlp` is missing, install it before running. No Python venv needed — the dedupe parser uses stdlib only.
+No ffmpeg on this machine: never pass `--convert-subs` (it errors out). The dedupe parser reads SRT or VTT, stdlib only.
 
 **If yt-dlp returns "Video unavailable" on first try:** YouTube changes its default extractor frequently. Retry with explicit player clients before giving up:
 
@@ -33,20 +34,18 @@ If both attempts fail, **double-check the video ID**. Common cause: `l` (lowerca
 ### 1. Pull metadata + transcript
 
 ```bash
-WORK=$(mktemp -d)
-yt-dlp \
-  --skip-download \
-  --write-auto-sub --write-sub --sub-lang en --convert-subs srt \
-  --write-info-json \
-  -o "$WORK/%(id)s.%(ext)s" \
-  "$URL"
+WORK=$(mktemp -d); ID=<11-char video id>
+yt-dlp --skip-download --write-info-json -o "$WORK/%(id)s.%(ext)s" "$URL"   # metadata only
 ```
 
-Outputs in `$WORK`:
-- `<id>.info.json` — title, channel, upload date, duration, description, chapters
-- `<id>.en.srt` (or `.en-US.srt`, `.en-auto.srt`) — captions
+`<id>.info.json` has title, channel, upload date, duration, description, chapters.
 
-If no `.srt` file appears, captions are missing — fall through to the Whisper fallback (§3).
+Transcript, first that works (yt-dlp's caption URL is often rate-limited by YouTube with HTTP 429; A uses a different endpoint):
+
+- **A (default):** `uvx --from youtube-transcript-api youtube_transcript_api "$ID" --languages en --format srt > "$WORK/$ID.srt"`
+- **B:** `yt-dlp --skip-download --write-auto-sub --write-sub --sub-lang en -o "$WORK/%(id)s.%(ext)s" "$URL"` gives `$ID.en.vtt`
+- **C:** B with `--cookies-from-browser chrome`
+- All 429: wait 15 minutes, run A once more. Genuinely no captions: Whisper fallback (§3).
 
 ### 2. Normalise the transcript
 
@@ -55,19 +54,21 @@ YouTube auto-caption SRT files use a **rolling-display format**: each cue's text
 Run with the SRT path passed as `$1` and the output path as `$2`:
 
 ```bash
-python3 - "$WORK/<id>.en.srt" "$WORK/transcript.txt" << 'PY'
+python3 - "$WORK/<id>.srt or .en.vtt" "$WORK/transcript.txt" << 'PY'
 import re, sys, pathlib
 src = pathlib.Path(sys.argv[1]).read_text()
 
 cues = []
 for block in re.split(r"\n\n+", src.strip()):
     lines = block.strip().split("\n")
-    if len(lines) < 2: continue
-    m = re.match(r"(\d{2}):(\d{2}):(\d{2})", lines[1])
+    # SRT has an index line before the timing line; VTT does not.
+    i = next((i for i, l in enumerate(lines[:2]) if "-->" in l), None)
+    if i is None: continue
+    m = re.match(r"(?:(\d{2}):)?(\d{2}):(\d{2})", lines[i])
     if not m: continue
-    ts = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
-    for line in lines[2:]:
-        line = line.strip()
+    ts = int(m.group(1) or 0) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
+    for line in lines[i + 1:]:
+        line = re.sub(r"<[^>]+>", "", line).strip()
         if line:
             cues.append((ts, line))
 
@@ -140,7 +141,7 @@ title: …
 duration: 47:12
 published: 2026-04-22
 captured: 2026-04-29
-transcript-source: youtube-auto-captions  # or: whisper-base.en
+transcript-source: youtube-transcript-api  # or: yt-dlp-captions, whisper-base.en
 nick-context: "listening live, AI-native company framing"
 ---
 
