@@ -3,5 +3,6 @@
 set -e
 SRC="${1:-$HOME/code/other/helm3}/skills"
 cd "$(dirname "$0")"
+rm -rf ./helm ./helm-*
 for s in "$SRC"/*; do rm -rf "./$(basename "$s")"; cp -R "$s" ./; done
 echo "synced $(ls "$SRC" | wc -l | tr -d ' ') skills from $SRC"
