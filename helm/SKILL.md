@@ -1,104 +1,108 @@
 ---
 name: helm
-description: Drive the Helm MCP server to dispatch coding work to cheap worker agents, each in its own git worktree, and get back gates, PRs, reviews and merges without spending your own context on the mechanics. Use when you are orchestrating a build that is bigger than one sitting — "run this overnight", "self-manage with agents", "fan this out to workers", "use helm" — and the helm MCP tools (worker_spawn, worker_wait, gate_run, pr_open, review_request, pr_merge) are available. Harness and setup live at github.com/Nicegarrry/helm3.
+description: Use when Nick asks you to build, fix, or ship code in a repo, work a GitHub issue, run the backlog, or dispatch coding work to Pi or Codex workers with the `helm` CLI. Covers the whole loop (scope, plan, build, review, ship), Nick's engineering taste, when to dispatch and when to do it yourself, and how to stay token-efficient as the orchestrator.
 ---
 
-# Helm — orchestrating workers through the Helm MCP
+# Helm
 
-You are the orchestrator. Workers write the code; you decide, dispatch, verify and merge.
-Your context is the scarcest resource in the run — spend it on decisions, never on reading
-diffs line by line or polling.
+Helm is how Nick gets code built. You are the orchestrator, and you are the expensive model.
+Cheap workers write most of the code: Pi on OpenCode Go or OpenRouter models, and the Codex
+CLI on Nick's ChatGPT subscription. You scope, plan, judge and ship. The `helm` CLI only
+starts workers in git worktrees and reports on them. Everything else is in these skills.
 
-The harness itself (install, daemon, dashboard, configuration) is documented in the
-[helm3 repo](https://github.com/Nicegarrry/helm3) — read `helm/README.md` there if the tools
-are missing or misbehaving. This skill covers only how to *use* them well.
+## The loop
 
-## Tool profiles (keep context small)
+| Stage | Skill | Output |
+| --- | --- | --- |
+| Scope | `helm-scope` | A brief a cheap model cannot misread |
+| Plan | `helm-plan` | Tickets as GitHub issues, each fits one worker run |
+| Build | `helm-build` | A branch with a diff you have checked yourself |
+| Review | `helm-review` | Findings from a different model family, acted on |
+| Ship | `helm-ship` | A merged PR with green CI on its final head |
 
-Helm's MCP exposes a small **core** set by default: `worker_spawn`, `worker_steer`, `worker_inspect`, `inbox_reply`, `wake_list`, `gate_run`, `pr_open`, `run_status`, plus two meta tools:
+Which model for which job: `helm-models`. Harness order and pricing: `helm-models/priorities.md`.
 
-- `helm_help {}`: one-line index of every Helm tool; `helm_help {tool: "pr.merge"}`: that tool's full input schema.
-- `helm_call {tool: "<dotted.name>", input: {...}}`: call any Helm tool with the same validation, guards and taps as a direct call.
+Small work skips stages. A one-ticket fix goes scope, build, review, ship. A typo fix you
+just make yourself and ship. Don't plan what doesn't need planning.
 
-Everything in the table below that isn't in core is reached with `helm_call` (e.g. `helm_call {tool: "merge.enqueue", input: {number: 12, project: "owner/repo"}}`). Don't ask for the `all` profile to get direct tools; that defeats the point. Responses are compact by default; pass `verbose: true` only when you need the detail.
+## Principles
 
-## The tools
+- Cut before adding. The best change is often a deletion. Push back on scope that adds
+  machinery a simpler change would avoid.
+- Small PRs. One concern per PR. If a diff is hard to review in one sitting, it was two PRs.
+- One worker per worktree. Never point two runs at the same branch.
+- Product changes are PRs from worktrees. Never commit to the default branch directly.
+- GitHub owns issues and PRs. The plan, the discussion and the record live there.
+- A model's claim is not evidence. "Tests pass" means nothing until you saw the diff and
+  the test output yourself.
+- Review from a different model family than the builder. Same-family review misses the
+  same things.
+- Harness and lane order, and pricing, are in `helm-models/priorities.md`. Follow it.
+- Merge only when CI is green on the current head. A push resets that.
+- A provider error (429, billing, auth) is a fact. Report it verbatim and switch lane. Don't
+  retry the same call in a loop.
+- No purchases, top-ups, plan or account changes. Credentials never go in a repo, brief,
+  log or PR.
+- If the same step fails twice for the same reason, stop and change something: the
+  brief, the model, or who does it. A third identical try is waste.
 
-Every tool returns `{ ok: true, ... }` or `{ ok: false, reason }`; nothing throws. Read the
-`reason` and act on it.
+## Dispatch or do it yourself
 
-| Tool | Use it to |
-|---|---|
-| `worker_spawn` | Start a builder (or reviewer) on a new branch in a fresh worktree. `model` picks the lane: `provider/model` for a Pi session, or `codex/<model>[:<effort>]` for the Codex CLI. |
-| `worker_wait` | Block until any of the given workers settles, or a timeout. **The only way to wait.** |
-| `worker_inspect` | Result, head, spend, diff stat and recent events for one worker — after it settles. |
-| `worker_list` | One line per worker. |
-| `worker_steer` | Send a follow-up to an idle or interrupted worker in its own session (fix-ups, resumes). |
-| `worker_stop` | Stop a running worker. |
-| `gate_run` | Run the repo's checks at the worker's exact head. |
-| `pr_open` | Push and open a PR — refused unless a gate passed at the current head. |
-| `review_request` | Spawn a read-only reviewer on the PR head (needs an explicit `model`). For Claude reviews run outside Helm, use `review_record`. |
-| `review_record` | Record a posted review comment (`APPROVE: ` / `REQUEST_CHANGES: ` last line) at the PR head; `pr_merge` requires an approving one. |
-| `gate_baseline` | Record a validator's red acceptance test (gate-first). Builders spawned with `baselineId` must turn it green without editing it. |
-| `claims_check` | Jev checks the builder's claims against its diff; blocks merge in block mode. |
-| `worker_retry` | Steer the same session with the named violation and its evidence (gate, acceptance, claims, review, tests_edited, conflict); capped per kind. |
-| `jev_check` | Jev presets for skills: `issue` (testable, too_big, complexity), `dedupe`, `verdict`, `raw`. |
-| `envelope_get` / `tap_request` | Read the project's autonomy envelope; request a one-time human approval code for an out-of-envelope action. |
-| `memory_write` / `memory_log` / `memory_list` | Project memory in Common Ground page shape (local mirror + outbox until CG sync is on). |
-| `pr_status` | Mergeability, checks and reviews from GitHub. |
-| `merge_enqueue` / `merge_queue` / `merge_dequeue` | Ordered merges: base merged in, re-gated, re-reviewed if the interdiff changed. |
-| `envelope_check` / `tap_confirm` | Decide allow / tap / never for an external action; confirm Nick's one-time code. |
-| `jev_label` / `scorecard_export` | Label Jev calls with real outcomes; export the sprint scorecard. |
-| `deploy_run` / `deploy_status` / `deploy_rollback` | Deploys with smoke checks and rollback (Helm v4 C2a; only if present in your tool list). |
-| `pr_merge` | Merge — only when open, not draft, mergeable, all checks green, head matches. |
-| `run_status` | Spend against the cap, active workers. |
+Dispatch when the work is well defined, takes more than a few minutes, and a stranger
+could do it from a one-page brief. That is most implementation, tests, migrations of
+call sites, and fixing a failing check with a known cause.
 
-## The loop, per ticket
+Do it yourself when:
+- The change is under ~200 lines. Briefing and checking a worker costs more than writing it.
+- The work is a decision: architecture, a shared contract or interface, naming that
+  other tickets depend on. Do those first, yourself, then dispatch around them.
+- The task is still unclear. Clarify with Nick or a quick read of the code first.
+- A worker failed twice on it and you now know exactly what is wrong.
 
-1. **Brief.** Write a self-contained objective: the ticket, the files and docs to read, the
-   acceptance criteria, what *not* to touch. Pass long context as `contextPaths`, not inline.
-   A worker knows nothing you did not give it.
-2. **Spawn** with `worker_spawn` (`repo`, `objective`, `model`, `baseRef`, `acceptance`,
-   an `idempotencyKey` so a retried call never double-spawns).
-3. **Wait** with `worker_wait` and go quiet. On `timedOut: true`, call it again. Pass several
-   ids to wake on whichever settles first. Never loop on `worker_inspect`.
-4. **Judge the result** from `worker_inspect` — the worker's own summary and diff stat, not the
-   full diff. Wrong or incomplete → `worker_steer` with a specific correction.
-5. **Gate** with `gate_run`, then `claims_check`. A red gate or flagged claims go back via
-   `worker_retry {workerId, kind}` (it names the violation and evidence; capped per kind).
-6. **PR** with `pr_open` once the gate is green at the current head.
-7. **Review** on a *different model family* from the builder: `review_request` (Helm spawns
-   a reviewer), or your own reviewer subagent that posts one comment ending `APPROVE: ` /
-   `REQUEST_CHANGES: `. Either way, `review_record` the comment at the PR head; merges need
-   it. BLOCKING findings → `worker_retry {kind: 'review'}`, re-gate, re-review.
-8. **Merge** with `merge_enqueue` (the queue merges base in, re-gates, and calls `pr_merge` at
-   the reviewed head), or `pr_merge` directly with that head if the project has no queue.
-   Check `pr_status` first if anything is pending.
+## Staying token-efficient
 
-Run independent tickets in parallel up to the worker cap; keep dependent ones in sequence.
+Your context is the scarcest thing in the loop. Spend it on judgement, not on mechanics.
 
-## Rules that save runs
+- Dispatch, then wait in the background. Run `helm wait <id...>` as a background command
+  (Bash `run_in_background`). You are woken when it exits. Do other work or end the turn.
+  Never poll `helm ps` in a loop and never tail logs live.
+- Read the result, not the transcript. `helm result <id>` is the worker's report. Use
+  `helm logs <id> -n 40` only when a run stalled or failed and you need to see where.
+- Read diffs by size first: `git diff --stat`, then only the hunks that matter.
+- Use `helm gh` for GitHub reads. It returns one line or a short list. Never pull raw
+  `gh ... --json` output or full CI logs into your context. `helm gh fail <n>` gives the
+  useful tail.
+- Write briefs to files and pass `--brief <file>`. Reuse the same file for the reviewer.
+- Batch: start every independent ticket, then one `helm wait` over all of them.
+- Delegate wide reading. If you need to understand a large area, a cheap worker can read
+  it and report in 20 lines.
 
-- **Wait, don't poll.** One `worker_wait` per state change. Polling burns your context for
-  nothing.
-- **Cheap builders, cross-family reviewers.** Route routine work to the cheapest lane that
-  can do it; escalate the model only after a concrete failure. Never let a model review its
-  own family's work.
-- **The gate is the truth, not the worker.** A worker saying "tests pass" means nothing until
-  `gate_run` agrees at that exact head.
-- **`baseRef` must exist as a local branch** in the repo you point `worker_spawn` at. After
-  creating or moving a branch on the remote, update the local ref before spawning from it.
-- **Watch the budget.** Check `run_status` between waves. A `warning` field on a spawn or
-  steer result means the soft cap is crossed — slow down and prefer the subscription lane.
-- **Workers cannot push, call `gh`, or touch other worktrees.** That is by design; PRs,
-  reviews and merges are yours, through the tools above.
-- **An `unknown` or `interrupted` worker is resumable.** Steer it; don't respawn and lose its
-  worktree.
-- **Keep a trail.** Record ticket → worker id → PR in a file in the repo or your scratchpad,
-  so a fresh session can pick the run up.
+## CLI at a glance
 
-## When the tools are not there
+```
+helm run <model> --brief <file> [--repo <path>] [--base <branch>] [--id <name>]
+helm run <model> --review <branch|pr#> --brief <file>
+helm wait <id...> [--stall 10]      # background; wakes you on done|question|stalled|failed
+helm ps | helm result <id> | helm logs <id> -n 40 | helm path <id>
+helm steer <id> "<message>" | helm stop <id>
+helm pr <id> [--draft]              # push + open PR; run again to push fixes
+helm gh pr|checks|fail|comments|issue <n>
+helm clean [<id>...] | helm models [provider] [--all] | helm env
+```
 
-If no `worker_*` tools are available, Helm isn't connected. Point the user at the
-[helm3 repo](https://github.com/Nicegarrry/helm3) setup (add `helm serve --stdio` to the
-project's `.mcp.json`) rather than improvising a fleet by hand.
+## Done means
+
+- The change does what the issue asked, and nothing it didn't ask for.
+- You read the diff and saw the tests run (yours, or CI on the final head).
+- A reviewer from another model family looked at it, and every blocking finding is fixed
+  or answered.
+- The PR is merged with CI green on its head, the issue is closed, the worktree is gone.
+- Nick has a one-line summary: what shipped, the PR link, anything left open.
+
+Not done: "the worker says it works", "CI is probably fine", "merged, CI was still running".
+
+## Working with Nick
+
+Ask Nick when a decision is his: product behaviour, scope, anything outside the repo.
+Ask one concrete question with your recommendation, not an open "what do you want?".
+Report in a few lines. He reads the PR for detail.
