@@ -9,3 +9,6 @@ credentials*
 .DS_Store
 qubit-byte
 qubit-ink
+
+# Private skill with its own repo; never published here
+ingest-anything/
