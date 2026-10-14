@@ -1,11 +1,11 @@
 ---
 name: factory-plan
-description: Turn a product idea into an approved sprint spec for the Helm factory. Grill Nick on goal, users, non-goals, constraints, envelope and budget, then build a VG deck (strategy slides plus one wireframe slide per feature with an acceptance notes block), loop on his phone review until approved, and record the deck id on the project map issue. Use when a supervisor starts a new sprint, or Nick says "plan a sprint", "spec this", "new features for <project>".
+description: Turn a product idea into an approved sprint spec for the Helm factory. Grill Nick on goal, users, non-goals, constraints, envelope and budget, then build a qWork deck (strategy slides plus one wireframe slide per feature with an acceptance box), loop on his phone review until approved, and record the deck id on the project map issue. Use when a supervisor starts a new sprint, or Nick says "plan a sprint", "spec this", "new features for <project>".
 ---
 
 # factory-plan: idea to approved feature deck
 
-Output: an approved VG deck id and a feature list, recorded on the project's map issue. The next step is `deck-to-issues`.
+Output: an approved qWork deck id and a feature list, recorded on the project's map issue. The next step is `deck-to-issues`.
 
 ## 1. Grill
 
@@ -22,9 +22,9 @@ Stop grilling when every feature has an observable definition of done.
 
 ## 2. Build the deck
 
-1. Call `vg_guide` first. Follow its contract, slide kit and bound style.
+1. Read the qWork skill (`~/qubit-wiki/os/connectors/qwork/skills/qwork/SKILL.md`) for the `qw` CLI and deck ops. Create the deck with `qw create deck --title "<project>: sprint plan" spec.json`, then refine with `qw ops`.
 2. Strategy slides (3 to 6): problem, outcome, scope in and out, risks, sprint budget and deploy targets.
-3. **One wireframe slide per feature.** Each has a real HTML layout mock of the screen or surface (not a bullet list) and a speaker-notes block in exactly this shape:
+3. **One wireframe slide per feature.** Each has a layout mock of the screen or surface built from shapes and text boxes (not a bullet list), and a text box named `Acceptance` (bottom strip of the slide) in exactly this shape:
 
    ```
    feature: <short name>
@@ -37,10 +37,10 @@ Stop grilling when every feature has an observable definition of done.
 
 ## 3. Review loop
 
-1. `vg_push_deck` and send Nick the review link.
-2. `vg_wait_for_review`. Read every pin, ink mark and inline edit (`vg_get_review` for detail).
-3. Apply the changes (`vg_propose_change` for edits he should confirm), then `vg_resolve_comments` for the ones handled.
-4. Push again and wait. Loop until Nick approves.
+1. Send Nick the link: `https://qwork.qubitstudio.app/s/<id>`.
+2. When he says he has reviewed, `qw comment <id>` and read every thread. His direct edits are already in the deck.
+3. Apply the changes with `qw ops` (small groups, one slide at a time), reply on each thread and `--resolve` the handled ones.
+4. Tell him it is ready again. Loop until Nick approves.
 
 ## 4. Record
 
@@ -49,6 +49,6 @@ Stop grilling when every feature has an observable definition of done.
 
 ## Rules
 
-- Only the VG tools named here exist; do not invent others.
+- Use only the `qw` commands in the qWork skill; do not invent others. VG is frozen (2026-10-14).
 - Nick is on a phone: short questions, one at a time.
 - The deck is the spec. If something changes later, change the deck first.

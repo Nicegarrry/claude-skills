@@ -1,6 +1,6 @@
 ---
 name: deck-to-issues
-description: Turn an approved factory-plan VG deck into GitHub issues a single coding worker can finish in one session. Drafts one issue per feature slide, checks each with Jev (testable, too_big), dedupes against open issues, then creates them under the project map issue. Use after factory-plan is approved, or when Nick says "make tickets from the deck".
+description: Turn an approved factory-plan qWork deck into GitHub issues a single coding worker can finish in one session. Drafts one issue per feature slide, checks each with Jev (testable, too_big), dedupes against open issues, then creates them under the project map issue. Use after factory-plan is approved, or when Nick says "make tickets from the deck".
 ---
 
 # deck-to-issues: approved deck to worker-sized tickets
@@ -9,7 +9,7 @@ Input: an approved deck id (from `factory-plan`) and the project map issue numbe
 
 ## 1. Draft
 
-`vg_get_deck <deck id>`. For each feature slide, read its notes block (`feature`, `acceptance`, `files hint`, `depends on`) and draft:
+`qw read <deck id>` (add `--at <pid>` for one slide). For each feature slide, read its `Acceptance` text box (`feature`, `acceptance`, `files hint`, `depends on`) and draft:
 
 ```
 Title: <feature>
