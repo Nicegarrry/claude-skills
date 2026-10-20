@@ -268,6 +268,8 @@ def cmd_write(args):
 def cmd_recall(args):
     if os.environ.get("HANDOFF_HEADLESS") == "1":
         return  # don't inject into our own headless summariser
+    if os.environ.get("CLAUDE_CODING_HOOKS") == "0":
+        return  # non-coding agents (e.g. Sidekick) opt out of handoffs
     payload = read_stdin_json()
     mem_dir = resolve_mem_dir(
         args.mem_dir, payload.get("transcript_path") or args.transcript,
@@ -336,7 +338,7 @@ def cmd_fallback(args):
     reason = payload.get("reason", "")
     if reason != "clear":
         return  # only act on /clear; also blocks headless-session recursion
-    if os.environ.get("HANDOFF_HEADLESS") == "1":
+    if os.environ.get("HANDOFF_HEADLESS") == "1" or os.environ.get("CLAUDE_CODING_HOOKS") == "0":
         return
     if os.path.exists(FALLBACK_DISABLED_FLAG):
         return
