@@ -1,0 +1,1615 @@
+#!/usr/bin/env python3
+"""pt: personal-trainer CLI. Logs, coaching maths, progress page, dashboard.
+
+Data dir: --data <dir>, else $PT_DATA, else ~/.pt. Stdlib only; Pillow for the dashboard PNG.
+
+  pt onboard --template           print the onboarding answers template (JSON)
+  pt onboard <answers.json>       write profile.json + a generated program.json, print it
+  pt onboard --confirm            accept the program; `pt plan` works after this
+  pt import-strong <csv>          one logs/<date>.json per Strong session
+  pt import-hevy <csv>            same for a Hevy export
+  pt plan [--day A]               today's targets + one nudge; starts the draft
+  pt add "<line>"                 log one line (sets, swap, skip, physio, bw, run...)
+  pt done                         finalise draft -> log, progress.md, dashboard PNG
+  pt log <session.json|text>      write a whole session at once (--date)
+  pt summary                      rewrite progress.md
+  pt dashboard <date> -o <png>    render the phone dashboard
+"""
+import argparse
+import csv
+import difflib
+import json
+import os
+import re
+import sys
+from datetime import date, datetime, timedelta
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from catalogue import ALIASES, BIG_MUSCLES, CATALOGUE, MUSCLES, _key  # noqa: E402
+
+BAND = (10, 20)            # default hard sets / muscle / week; program.json "settings" overrides
+LOW_SETS = 4
+JUMP = 0.20                # weekly sets jump flag
+DELOAD_WEEKS = 6
+BREAK_DAYS = 10            # a gap this long counts as a deload
+PAIN_DELOAD = 4
+RUN_HEAVY_KM_48H = 10
+E1RM_CAP = 10
+UPPER_INC, LOWER_INC, DB_INC = 2.5, 5.0, 2.0
+DEFAULT_RANGE = {"upper": [8, 12], "lower": [8, 12], "core": [10, 15]}
+
+
+# ---------- paths and io ----------
+
+def data_dir():
+    d = os.environ.get("PT_DATA")
+    return Path(d).expanduser() if d else Path.home() / ".pt"
+
+
+def _day(x, after, before=""):
+    """'Tue 3 Nov' without the non-portable %-d."""
+    return (x.strftime(before) if before else "") + f"{x.day} " + x.strftime(after)
+
+
+def today():
+    t = os.environ.get("PT_TODAY")
+    return date.fromisoformat(t) if t else date.today()
+
+
+def rjson(p, default=None):
+    p = Path(p)
+    return json.loads(p.read_text()) if p.exists() else default
+
+
+def wjson(p, obj):
+    p = Path(p)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(obj, indent=1, ensure_ascii=False) + "\n")
+
+
+def d(s):
+    return date.fromisoformat(s[:10])
+
+
+def tracking():
+    t = rjson(data_dir() / "tracking.json", {}) or {}
+    for k in ("bodyweight", "runs", "physio", "pain"):
+        t.setdefault(k, [])
+    return t
+
+
+def save_tracking(t):
+    for k in t:
+        t[k].sort(key=lambda r: r["date"])
+    wjson(data_dir() / "tracking.json", t)
+
+
+def program():
+    return rjson(data_dir() / "program.json", {"days": {}})
+
+
+def profile():
+    return rjson(data_dir() / "profile.json", {}) or {}
+
+
+def settings(prog=None):
+    """Tunable thresholds: program.json "settings" over the defaults."""
+    st = {"band": list(BAND), "run_heavy_km_48h": RUN_HEAVY_KM_48H, "pain_stop": 3,
+          "pain_deload": PAIN_DELOAD, "deload_weeks": DELOAD_WEEKS}
+    st.update((prog or program()).get("settings", {}))
+    return st
+
+
+def avoided():
+    """Lifts the user has ruled out (injury, kit, dislike), from profile.json (about.avoid or avoid)."""
+    prof = profile()
+    names = list(prof.get("avoid", [])) + list((prof.get("about") or {}).get("avoid", []))
+    return {resolve(n) or n for n in names if not n.startswith("e.g.")}
+
+
+def load_sessions():
+    out = []
+    for p in sorted((data_dir() / "logs").glob("*.json")):
+        s = json.loads(p.read_text())
+        s["_file"] = p.name
+        out.append(s)
+    out.sort(key=lambda s: (s["date"], s.get("start") or ""))
+    return out
+
+
+# ---------- names ----------
+
+def resolve(name, prefer=()):
+    """Free text -> canonical exercise name, or None."""
+    k = _key(name)
+    if not k:
+        return None
+    if k in ALIASES:
+        return ALIASES[k]
+    toks = k.split()
+    cands = [n for n in CATALOGUE if all(t in _key(n) for t in toks)]
+    if cands:
+        for p in prefer:
+            if p in cands:
+                return p
+        return min(cands, key=len)
+    m = difflib.get_close_matches(k, list(ALIASES), n=1, cutoff=0.8)
+    return ALIASES[m[0]] if m else None
+
+
+def info(name):
+    return CATALOGUE.get(name, {"name": name, "pattern": "other", "primary": [], "secondary": [],
+                                "region": "upper", "kind": "weight", "factor": 1.0,
+                                "dumbbell": False})
+
+
+SHORT = {"Bench Press (Barbell)": "bench", "Bench Press (Dumbbell)": "db bench", "Lat Pulldown (Cable)": "lat pulldown",
+         "Squat (Barbell)": "squat", "Romanian Deadlift (Barbell)": "rdl", "Romanian Deadlift (Dumbbell)": "db rdl",
+         "Chest Supported Row (Dumbbell)": "cs row", "Lying Leg Curl (Machine)": "leg curl",
+         "Reverse Lunge (Barbell)": "reverse lunge", "Bulgarian Split Squat": "split squat", "Pallof Press": "pallof",
+         "Single Leg Rdl": "sl rdl", "Seated Row (Cable)": "cable row", "Goblet Squat (Kettlebell)": "goblet squat",
+         "Incline Bench Press (Dumbbell)": "incline db bench", "Overhead Press (Barbell)": "ohp",
+         "Safety Bar Squat": "ssb squat"}
+
+
+def short(name):
+    return SHORT.get(name) or name.split(" (")[0].lower()
+
+
+# ---------- parsing ----------
+
+NUM = r"-?\d+(?:\.\d+)?"
+
+
+def _unit(v, u):
+    return round(v * 0.4536, 1) if u == "lb" else v
+
+
+def parse_sets(text):
+    """'50x10,9 @8' / '30x8/8' / '60x8x3' / '30kg 2x12' / 'x8,6' / '60s' -> (sets, line_rpe)."""
+    t = text.lower()
+    t = re.sub(r"\s*x\s*", "x", t)
+    t = re.sub(r"\s*,\s*", ",", t)
+    t = re.sub(r"\s*/\s*", "/", t)
+    t = re.sub(r"(\d)\s+(kg|lb|s|sec|min|km)\b", r"\1\2", t)
+    t = re.sub(r",(?=\d+(?:\.\d+)?(?:kg|lb)?x)", " ", t)  # '25x8,30x8' = two loads
+    t = re.sub(r"\b\d+(?:\.\d+)?cm\b", " bw ", t)  # box height etc.: bodyweight, not a load
+    sets, line_rpe, pending, each = [], None, None, False
+    for tok in t.split():
+        if tok in ("each", "ea", "/side", "per", "side", "ps"):
+            each = True
+            continue
+        m = re.fullmatch(r"@(\d+(?:\.\d+)?)", tok)
+        if m:
+            line_rpe = float(m.group(1))
+            continue
+        if tok == "bw":
+            pending = 0.0
+            continue
+        if tok.startswith("bwx"):
+            pending, tok = 0.0, tok[2:]
+        m = re.fullmatch(rf"({NUM})(kg|lb)", tok)
+        if m:
+            pending = _unit(float(m.group(1)), m.group(2))
+            continue
+        m = re.fullmatch(r"(?:(\d+)x)?(\d+)(s|sec|min)", tok)
+        if m or re.fullmatch(r"\d+(?:s|sec|min)(?:[,/]\d+(?:s|sec|min)?)+", tok):
+            n = int(m.group(1)) if m and m.group(1) else 1
+            for part in re.split(r",", tok.split("x")[-1]):
+                sides = part.split("/")
+                mm = re.fullmatch(r"(\d+)(s|sec|min)?", sides[0])
+                secs = int(mm.group(1)) * (60 if mm.group(2) == "min" else 1)
+                for _ in range(n):
+                    sets.append({"weight": pending, "reps": None, "seconds": secs, "each": len(sides) > 1})
+            continue
+        m = re.fullmatch(r"(\d+(?:\.\d+)?)km", tok)
+        if m:
+            sets.append({"weight": None, "reps": None, "km": float(m.group(1))})
+            continue
+        m = re.fullmatch(rf"({NUM})?(kg|lb)?x(.+)", tok)
+        if m:
+            w = m.group(1)
+            rest = m.group(3)
+            if pending is not None and w is not None and m.group(2) is None and re.fullmatch(r"\d+", rest):
+                # '30kg 2x12' -> sets x reps at the pending weight
+                for _ in range(int(float(w))):
+                    sets.append({"weight": pending, "reps": int(rest)})
+                continue
+            weight = _unit(float(w), m.group(2)) if w is not None else (pending if pending is not None else 0.0)
+            mx = re.fullmatch(r"(\d+)x(\d+)", rest)
+            if mx:  # 60x8x3 = 3 sets of 8
+                for _ in range(int(mx.group(2))):
+                    sets.append({"weight": weight, "reps": int(mx.group(1))})
+                continue
+            for part in rest.split(","):
+                mp = re.fullmatch(r"(\d+)(?:/(\d+))?(?:@(\d+(?:\.\d+)?))?", part)
+                if not mp:
+                    raise ValueError(f"can't read '{part}' in '{tok}'")
+                s = {"weight": weight, "reps": int(mp.group(1))}
+                if mp.group(2):
+                    s["each"] = True
+                if mp.group(3):
+                    s["rpe"] = float(mp.group(3))
+                sets.append(s)
+            continue
+        raise ValueError(f"can't read '{tok}'")
+    for s in sets:
+        if each:
+            s["each"] = True
+        if line_rpe is not None and "rpe" not in s:
+            s["rpe"] = line_rpe
+    return sets, line_rpe
+
+
+def parse_line(line, current=None, prefer=()):
+    """One texted line -> command dict."""
+    raw = line.strip()
+    lo = raw.lower().strip(" .!")
+    if not lo:
+        return {"cmd": "noop"}
+    if lo in ("done", "finished", "end"):
+        return {"cmd": "done"}
+    if lo == "undo":
+        return {"cmd": "undo"}
+    m = re.fullmatch(r"day\s+([a-f])", lo)
+    if m:
+        return {"cmd": "day", "day": m.group(1).upper()}
+    if lo.startswith("deload"):
+        return {"cmd": "deload"}
+    m = re.fullmatch(rf"(?:bw|bodyweight|weight)\s*({NUM})\s*(kg|lb)?", lo)
+    if m:
+        return {"cmd": "bw", "kg": _unit(float(m.group(1)), m.group(2))}
+    m = re.fullmatch(r"run\s*(\d+(?:\.\d+)?)\s*(?:km|k)?(?:\s+(\d+)\s*(?:min|m))?(?:\s+(yesterday))?", lo)
+    if m:
+        return {"cmd": "run", "km": float(m.group(1)), "min": int(m.group(2)) if m.group(2) else None,
+                "yesterday": bool(m.group(3))}
+    if lo.startswith("physio"):
+        pm = re.search(r"(?:pain\s*|p)(\d+)\b", lo)
+        done = not re.search(r"\b(skip|skipped|missed|no)\b", lo)
+        rest = re.sub(r"^physio\s*(done|skip(ped)?|missed)?", "", lo)
+        rest = re.sub(r"(?:pain\s*|\bp)\d+", "", rest).strip(" ,.-")
+        return {"cmd": "physio", "done": done, "pain": int(pm.group(1)) if pm else None,
+                "drills": [x.strip() for x in re.split(r",|;| and ", rest) if x.strip()]}
+    m = re.fullmatch(r"pain\s+(?:(\d+)\s+([a-z ]+)|([a-z ]+?)\s+(\d+))(?:/10)?", lo)
+    if m:
+        site = (m.group(2) or m.group(3)).strip()
+        return {"cmd": "pain", "site": site, "score": int(m.group(1) or m.group(4))}
+    if lo.startswith("note "):
+        return {"cmd": "note", "text": raw[5:].strip()}
+    m = re.fullmatch(r"skip(?:\s+(.+))?", lo)
+    if m:
+        return {"cmd": "skip", "ex": resolve(m.group(1), prefer) if m.group(1) else current}
+    m = re.fullmatch(r"swap\s+(.+?)\s*(?:->|>|\bfor\b|\bto\b)\s*(.+)", lo)
+    if m:
+        return {"cmd": "swap", "ex": resolve(m.group(1), prefer), "to": resolve(m.group(2), prefer)}
+    m = re.fullmatch(r"swap(?:\s+(.+))?", lo) or re.fullmatch(r"(.+?)\s+(?:taken|busy|in use|unavailable)", lo)
+    if m:
+        name = m.group(1)
+        return {"cmd": "swap", "ex": resolve(name, prefer) if name else current, "to": None}
+    # sets: leading words are the exercise, from the first spec-like token on are sets
+    toks = raw.split()
+    i = 0
+    while i < len(toks) and not re.match(r"^(-?\d|@|x\d|bw\b)", toks[i].lower()):
+        i += 1
+    name_txt, spec = " ".join(toks[:i]), " ".join(toks[i:])
+    ex = resolve(name_txt, prefer) if name_txt else current
+    if name_txt and ex is None:
+        ex = name_txt.strip().title()
+    if not spec:
+        return {"cmd": "unknown", "text": raw}
+    sets, _ = parse_sets(spec)
+    return {"cmd": "sets", "ex": ex, "sets": sets}
+
+
+# ---------- maths ----------
+
+def e1rm(w, r):
+    if not w or not r or w <= 0:
+        return None
+    return w * (1 + min(r, E1RM_CAP) / 30.0)
+
+
+def inv_e1rm(e, r):
+    return e / (1 + min(r, E1RM_CAP) / 30.0)
+
+
+def working(sets, kind="weight"):
+    """Drop warm-ups and ramp sets (< 60% of the session's top weight)."""
+    ws = [s for s in sets if not s.get("warmup")]
+    if kind == "weight":
+        top = max([s.get("weight") or 0 for s in ws] or [0])
+        if top > 0:
+            ws = [s for s in ws if (s.get("weight") or 0) >= 0.6 * top]
+    return ws
+
+
+def best_e1rm(sets):
+    vals = [e1rm(s.get("weight"), s.get("reps")) for s in sets]
+    vals = [v for v in vals if v]
+    return round(max(vals), 1) if vals else None
+
+
+def tonnage(sets):
+    return sum((s.get("weight") or 0) * (s.get("reps") or 0) * (2 if s.get("each") else 1)
+               for s in sets if not s.get("warmup") and (s.get("weight") or 0) > 0)
+
+
+def step(name):
+    return DB_INC if info(name)["dumbbell"] else 2.5
+
+
+def rnd(w, name, down=True):
+    st = step(name)
+    q = w / st
+    q = int(q + 1e-9) if down else round(q)
+    return max(st, round(q * st, 2))
+
+
+def increment(name, weight):
+    i = info(name)
+    if i["dumbbell"]:
+        return DB_INC
+    if i["region"] == "lower":
+        return LOWER_INC if weight and LOWER_INC <= 0.1 * weight else UPPER_INC
+    return UPPER_INC
+
+
+def fmt_w(w):
+    return ("%g" % w) if w is not None else "?"
+
+
+def fmt_sets(sets):
+    """[{'weight':30,'reps':8,'each':1},...] -> '20x8/8 30x8/8' or '45x10,10' or '60s,45s'."""
+    out, cur_w, reps = [], object(), []
+    rpes = {s.get("rpe") for s in sets}
+    common = rpes.pop() if len(rpes) == 1 else None
+    if common:
+        sets = [{k: v for k, v in s.items() if k != "rpe"} for s in sets]
+    for s in sets:
+        if s.get("seconds"):
+            r = f"{s['seconds']}s" + (f"/{s['seconds']}s" if s.get("each") else "")
+        elif s.get("km"):
+            r = f"{s['km']:g}km"
+        else:
+            r = str(s.get("reps")) + (f"/{s.get('reps')}" if s.get("each") else "")
+            if s.get("rpe"):
+                r += f"@{s['rpe']:g}"
+        w = s.get("weight")
+        if w != cur_w:
+            if reps:
+                out.append(_chunk(cur_w, reps))
+            cur_w, reps = w, []
+        reps.append(r)
+    if reps:
+        out.append(_chunk(cur_w, reps))
+    return " ".join(out) + (f" @{common:g}" if common else "")
+
+
+def _chunk(w, reps):
+    if reps and reps[0].endswith("s") or reps and reps[0].endswith("km"):
+        return (f"{fmt_w(w)}kg " if w else "") + ",".join(reps)
+    if not w:
+        return "bw x" + ",".join(reps)
+    return f"{fmt_w(w)}x" + ",".join(reps)
+
+
+# ---------- history ----------
+
+def history(sessions):
+    """name -> list of {date, sets(working), all, e1rm, top_w, top_reps, deload}."""
+    h = {}
+    for s in sessions:
+        for e in s.get("exercises", []):
+            kind = info(e["name"])["kind"]
+            ws = working(e.get("sets", []), kind)
+            if not ws:
+                continue
+            top_w = max([x.get("weight") or 0 for x in ws] or [0])
+            at_top = [x for x in ws if (x.get("weight") or 0) == top_w]
+            h.setdefault(e["name"], []).append({
+                "date": s["date"], "sets": ws, "e1rm": best_e1rm(ws) if kind == "weight" else None,
+                "top_w": top_w, "top_reps": [x.get("reps") or 0 for x in at_top],
+                "secs": max([x.get("seconds") or 0 for x in ws] or [0]),
+                "deload": bool(s.get("deload"))})
+    return h
+
+
+def perf(r):
+    return (r["top_w"], sum(r["top_reps"]), r["secs"])
+
+
+def stalls(rows, on=None):
+    """Consecutive latest sessions with no gain on the previous one (weight, then reps).
+    A break of more than 28 days resets the count."""
+    n = 0
+    if rows and on and (on - d(rows[-1]["date"])).days > 28:
+        return 0
+    for i in range(len(rows) - 1, 0, -1):
+        if rows[i]["deload"] or rows[i - 1]["deload"]:
+            break
+        if (d(rows[i]["date"]) - d(rows[i - 1]["date"])).days > 28:
+            break
+        if perf(rows[i]) <= perf(rows[i - 1]):
+            n += 1
+        else:
+            break
+    return n
+
+
+def trend(rows):
+    v = [r["e1rm"] for r in rows[-3:] if r["e1rm"]]
+    if len(v) < 2:
+        return "new"
+    if v[-1] > v[0] * 1.01:
+        return "up"
+    if v[-1] < v[0] * 0.99:
+        return "down"
+    return "flat"
+
+
+def prescription(name, prog=None):
+    prog = prog or program()
+    for day, items in prog.get("days", {}).items():
+        for it in items:
+            if it["ex"] == name or name in it.get("alt", []):
+                return dict(it, day=day)
+    region = info(name)["region"]
+    return {"ex": name, "sets": 2, "reps": DEFAULT_RANGE.get(region, [8, 12])}
+
+
+def next_target(name, rows, presc, on=None):
+    """Double progression. Returns {weight, reps, sets, seconds, why}."""
+    on = on or today()
+    i = info(name)
+    lo, hi = (presc.get("reps") or [8, 12])[:2] if presc.get("reps") else (None, None)
+    out = {"ex": name, "sets": presc.get("sets", 2), "reps": lo, "weight": None, "why": "",
+           "each": presc.get("each", False)}
+    if presc.get("seconds") or i["kind"] == "time":
+        last = rows[-1]["secs"] if rows else 0
+        target = presc.get("seconds", 30)
+        out.update(seconds=max(target, min(last + 5, 60)) if last else target, reps=None,
+                   why="hold" if not last else "+5s")
+        return out
+    rows = [r for r in rows if not r["deload"]] or rows  # progress from the last real session
+    if not rows:
+        out["why"] = "new: pick a load with 2 reps in reserve"
+        return out
+    last = rows[-1]
+    gap = (on - d(last["date"])).days
+    if i["kind"] in ("bodyweight", "physio", "warmup", "cardio"):
+        out.update(reps=min(hi or 12, (min(last["top_reps"]) if last["top_reps"] else lo) + 1), why="+1 rep")
+        return out
+    top, reps = last["top_w"], last["top_reps"]
+    in_range = reps and lo and min(reps) >= lo - 1 and max(reps) <= hi + 2
+    st = stalls(rows, on)
+    if i["kind"] == "assisted":
+        if reps and min(reps) >= hi:
+            out.update(weight=max(0, top - 5), why="top of range: less assist")
+        else:
+            out.update(weight=top, reps=min(hi, min(reps) + 1), why="add reps")
+        return out
+    if gap > 28 or not in_range:
+        e = last["e1rm"] or e1rm(top, min(reps or [lo]))
+        w = inv_e1rm(e, lo + 2) * (0.9 if gap > 28 else 1.0)
+        out.update(weight=rnd(w, name), why="after a break" if gap > 28 else f"new range {lo}-{hi}")
+    elif st >= 2:
+        out.update(weight=rnd(top * 0.9, name), reps=lo,
+                   why="stalled twice: -10% and rebuild, or change rep range/variation")
+    elif min(reps) >= hi and all((s.get("rpe") or 0) <= 9 for s in last["sets"] if s.get("weight") == top):
+        inc = increment(name, top)
+        out.update(weight=round(top + inc, 2), reps=lo, why=f"hit {hi}s: +{inc:g} kg")
+    else:
+        out.update(weight=top, reps=min(hi, min(reps) + 1), why="same load, add reps")
+    out["stalls"] = st
+    return out
+
+
+def fmt_target(t):
+    if t.get("seconds"):
+        return f"{t['sets']} x {t['seconds']}s" + (" each side" if t.get("each") else "")
+    if t.get("weight") is None and info(t["ex"])["kind"] in ("bodyweight", "physio", "warmup", "cardio"):
+        return f"{t['sets']} x {t['reps']}" + ("/side" if t.get("each") else "")
+    if t.get("weight") is None:
+        return f"{t['sets']} x {t['reps']}" + ("/side" if t.get("each") else "") + " (pick load)"
+    return f"{fmt_w(t['weight'])} x {t['reps']}" + ("/side" if t.get("each") else "") + f", {t['sets']} sets"
+
+
+def swap_options(name, hist, exclude=()):
+    p = info(name)["pattern"]
+    bad = avoided() | set(exclude)
+    cands = [n for n, v in CATALOGUE.items() if v["pattern"] == p and n != name and n not in bad]
+    # most recently used first, then most familiar
+    cands.sort(key=lambda n: (hist[n][-1]["date"] if hist.get(n) else "", len(hist.get(n, []))), reverse=True)
+    return cands
+
+
+def carry(frm, to, weight, hist):
+    """Carry a load across a swap: the user's own best-e1RM ratio if both have history, else factors."""
+    if weight is None:
+        return None
+    a = max([r["e1rm"] or 0 for r in hist.get(frm, [])] or [0])
+    b = max([r["e1rm"] or 0 for r in hist.get(to, [])] or [0])
+    ratio = (b / a) if a and b else (info(to)["factor"] / (info(frm)["factor"] or 1))
+    if not info(to)["factor"]:
+        return None
+    return rnd(weight * ratio, to)
+
+
+# ---------- weekly load, physio, deload ----------
+
+def week_start(x):
+    return x - timedelta(days=x.weekday())
+
+
+def weekly_sets(sessions, start):
+    end = start + timedelta(days=7)
+    out = {m: 0.0 for m in MUSCLES}
+    for s in sessions:
+        if not (start <= d(s["date"]) < end):
+            continue
+        for e in s.get("exercises", []):
+            i = info(e["name"])
+            if i["kind"] in ("physio", "warmup", "cardio"):
+                continue
+            n = len(working(e.get("sets", []), i["kind"]))
+            for m in i["primary"]:
+                if m in out:
+                    out[m] += n
+            for m in i["secondary"]:
+                if m in out:
+                    out[m] += 0.5 * n
+    return out
+
+
+def load_flags(this, last):
+    flags = []
+    for m in BIG_MUSCLES:
+        if last[m] and this[m] > last[m] * (1 + JUMP) and this[m] - last[m] >= 2:
+            flags.append(f"{m} up {round((this[m] / last[m] - 1) * 100)}% on last week")
+        if 0 < last[m] < LOW_SETS:
+            flags.append(f"{m} only {last[m]:g} sets last week")
+    return flags
+
+
+def last_deload(sessions, on):
+    """Latest deload session or end of a >= BREAK_DAYS gap before `on`."""
+    dates = sorted({d(s["date"]) for s in sessions if d(s["date"]) <= on})
+    best = None
+    for s in sessions:
+        if s.get("deload") and d(s["date"]) <= on:
+            best = max(best or d(s["date"]), d(s["date"]))
+    for a, b in zip(dates, dates[1:] + [on]):
+        if (b - a).days >= BREAK_DAYS:
+            mark = b
+            if best is None or mark > best:
+                best = mark
+    return best
+
+
+def main_lifts(prog=None):
+    prog = prog or program()
+    out = []
+    for items in prog.get("days", {}).values():
+        for it in items:
+            if it.get("main"):
+                out.append(it["ex"])
+    return out
+
+
+def deload_reasons(sessions, hist, trk, on, prog=None):
+    why = []
+    ld = last_deload(sessions, on)
+    ref = ld or (d(sessions[0]["date"]) if sessions else None)
+    st = settings(prog)
+    if ref and (on - ref).days >= st["deload_weeks"] * 7:
+        why.append(f"{(on - ref).days // 7} weeks since last deload")
+    pains = [p for p in trk["pain"] + trk["physio"] if p.get("pain", p.get("score")) is not None
+             and 0 <= (on - d(p["date"])).days <= 7]
+    hi = [p for p in pains if (p.get("score") if "score" in p else p.get("pain")) >= st["pain_deload"]]
+    if hi:
+        p = hi[-1]
+        why.append(f"pain {p.get('score', p.get('pain'))}/10 {p.get('site', 'physio')} on {p['date']}")
+    down = []
+    for n in main_lifts(prog):
+        rows = [r for r in hist.get(n, []) if not ld or d(r["date"]) >= ld]
+        if len(rows) >= 5:
+            ref = max(r["e1rm"] or 0 for r in rows[-5:-2])
+            if all((r["e1rm"] or 0) < ref for r in rows[-2:]):
+                down.append(short(n))
+    if len(down) >= 2:
+        why.append("e1RM down 2 sessions on " + ", ".join(down))
+    return why
+
+
+def run_km(trk, on, days):
+    return round(sum(r["km"] for r in trk["runs"] if 0 <= (on - d(r["date"])).days < days), 1)
+
+
+def latest_bw(trk):
+    return trk["bodyweight"][-1] if trk["bodyweight"] else None
+
+
+def physio_days(trk, on, n=14):
+    by = {}
+    for p in trk["physio"]:
+        by[p["date"]] = p
+    return [(on - timedelta(days=i), by.get((on - timedelta(days=i)).isoformat())) for i in range(n - 1, -1, -1)]
+
+
+# ---------- ideas ----------
+
+def ideas():
+    """ideas.md lines: `- [Nordic curl](<link>) pattern: knee_flex · status: open · note`"""
+    p = data_dir() / "ideas.md"
+    out = []
+    if not p.exists():
+        return out
+    for line in p.read_text().splitlines():
+        if not line.startswith("- [") or "status: open" not in line:
+            continue
+        m = re.search(r"\[([^\]]+)\]\(([^)]*)\)", line)
+        if not m:
+            continue
+        pat = re.search(r"pattern:\s*([a-z_]+)", line)
+        out.append({"link": m.group(2), "label": m.group(1),
+                    "pattern": pat.group(1) if pat else None, "line": line})
+    return out
+
+
+# ---------- plan ----------
+
+def next_day(sessions, prog):
+    days = sorted(prog.get("days", {}))
+    for s in reversed(sessions):
+        if s.get("day") in days:
+            return days[(days.index(s["day"]) + 1) % len(days)]
+    return days[0] if days else None
+
+
+def pick_variant(it, hist):
+    """Program slot -> exercise to suggest (primary unless only an alt has been done recently)."""
+    return it["ex"]
+
+
+def plan(day=None, on=None, write=True):
+    on = on or today()
+    prog, sessions, trk = program(), load_sessions(), tracking()
+    hist = history(sessions)
+    day = day or next_day(sessions, prog)
+    items = prog["days"].get(day, [])
+    reasons = deload_reasons(sessions, hist, trk, on, prog)
+    lines, targets = [], []
+    for it in items:
+        name = pick_variant(it, hist)
+        rows = hist.get(name, [])
+        t = next_target(name, rows, it, on)
+        if not rows:
+            for alt in it.get("alt", []) + swap_options(name, hist)[:3]:
+                if hist.get(alt) and info(alt)["kind"] == "weight":
+                    w = carry(alt, name, next_target(alt, hist[alt], it, on)["weight"], hist)
+                    if w:
+                        t.update(weight=w, why=f"from {short(alt)}")
+                    break
+        if reasons and t.get("weight"):
+            t.update(weight=rnd(t["weight"] * 0.6, name), sets=2, why="deload 60%")
+        targets.append(t)
+        last = f"last: {fmt_sets(rows[-1]['sets'])} {_day(d(rows[-1]['date']), '%b %y')}" if rows else "new"
+        lines.append(f"- {short(name)} {fmt_target(t)} ({last})")
+    nudge = pick_nudge(day, items, targets, sessions, hist, trk, on, reasons, prog)
+    head = f"Day {day} · {_day(on, '%b', '%a ')}"
+    drills = [x for x in (profile().get("about") or {}).get("rehab_drills", []) if x and not x.startswith("e.g.")]
+    warm = [f"Warm-up: {', '.join(drills)}"] if drills else []
+    out = "\n".join([head] + warm + lines + ([f"Nudge: {nudge}"] if nudge else []))
+    if write:
+        wjson(data_dir() / ".draft.json", {"date": on.isoformat(), "day": day, "deload": bool(reasons),
+                                            "plan": targets, "exercises": [], "notes": [], "current": None})
+    return out
+
+
+def pick_nudge(day, items, targets, sessions, hist, trk, on, reasons, prog):
+    if reasons:
+        return "deload: " + "; ".join(reasons) + ". Same lifts, about 60%, 2 sets."
+    legs = any(info(it["ex"])["region"] == "lower" and it.get("main") for it in items)
+    km = run_km(trk, on, 2)
+    if legs and km >= settings(prog)["run_heavy_km_48h"]:
+        return f"{km:g} km run in 48 h: keep leg loads at last session's, skip the jump today."
+    ws = week_start(on)
+    this, last = weekly_sets(sessions, ws), weekly_sets(sessions, ws - timedelta(days=7))
+    proj = dict(this)
+    for t in targets:
+        i = info(t["ex"])
+        for m in i["primary"]:
+            proj[m] = proj.get(m, 0) + t["sets"]
+    flags = [f for f in load_flags(proj, last) if " up " in f]
+    if flags:
+        return "load: " + flags[0] + ". Keep sets as planned, don't add extras."
+    # accessory rotation: at most one change a week
+    recent_new = [n for n, rows in hist.items() if rows and d(rows[0]["date"]) > on - timedelta(days=7)
+                  and not prescription(n, prog).get("main")]
+    if not recent_new:
+        for it in items:
+            if it.get("main"):
+                continue
+            rows = hist.get(it["ex"], [])
+            if stalls(rows) >= 2:
+                for idea in ideas():
+                    if idea["pattern"] == info(it["ex"])["pattern"]:
+                        return f"{short(it['ex'])} stalled twice: try {idea['label']} ({idea['link']})."
+                alt = swap_options(it["ex"], hist)
+                if alt:
+                    return f"{short(it['ex'])} stalled twice: rotate to {short(alt[0])}."
+    pains = [p["pain"] for p in trk["physio"] if p.get("pain") is not None][-3:]
+    if len(pains) == 3 and pains[0] < pains[1] < pains[2] and pains[2] >= 3:
+        return f"rehab pain trending up ({', '.join(map(str, pains))}): worth raising with your physio."
+    return None
+
+
+# ---------- draft / add ----------
+
+def load_draft(on=None):
+    p = data_dir() / ".draft.json"
+    dr = rjson(p)
+    on = on or today()
+    if not dr:
+        dr = {"date": on.isoformat(), "day": None, "deload": False, "plan": [], "exercises": [],
+              "notes": [], "current": None}
+    return dr
+
+
+def save_draft(dr):
+    wjson(data_dir() / ".draft.json", dr)
+
+
+def _ex_entry(dr, name):
+    for e in dr["exercises"]:
+        if e["name"] == name:
+            return e
+    e = {"name": name, "sets": []}
+    dr["exercises"].append(e)
+    return e
+
+
+def _next_planned(dr):
+    done = {e["name"] for e in dr["exercises"]} | set(dr.get("skipped", []))
+    swapped = {s["from"] for s in dr.get("swaps", [])}
+    for t in dr.get("plan", []):
+        if t["ex"] not in done and t["ex"] not in swapped:
+            return t
+    return None
+
+
+def _plan_for(dr, name):
+    for t in dr.get("plan", []):
+        if t["ex"] == name:
+            return t
+    for s in dr.get("swaps", []):
+        if s["to"] == name:
+            return s["target"]
+    return None
+
+
+def add(text, dr=None, persist=True):
+    """Apply one or more texted lines to the draft. Returns the one-line reply."""
+    own = dr is None
+    dr = dr or load_draft()
+    on = d(dr["date"])
+    sessions = load_sessions()
+    hist = history(sessions)
+    prefer = [t["ex"] for t in dr.get("plan", [])]
+    replies = []
+    for line in re.split(r"[\n;]", text):
+        try:
+            c = parse_line(line, dr.get("current"), prefer)
+        except ValueError as err:
+            replies.append(f"Didn't catch '{line.strip()}' ({err}). Try 'bench 45x10,10'.")
+            continue
+        replies.append(_apply(c, dr, on, hist, sessions))
+    if own and persist:
+        save_draft(dr)
+    return " ".join(r for r in replies if r)
+
+
+def _apply(c, dr, on, hist, sessions):
+    trk = tracking()
+    k = c["cmd"]
+    if k == "noop":
+        return ""
+    if k == "done":
+        return "Run `pt done` to close the session."
+    if k == "unknown":
+        return f"Didn't catch '{c['text']}'. Try 'bench 45x10,10'."
+    if k == "day":
+        dr["day"] = c["day"]
+        return f"Day {c['day']}."
+    if k == "deload":
+        dr["deload"] = True
+        return "Marked as a deload session."
+    if k == "note":
+        dr["notes"].append(c["text"])
+        return "Noted."
+    if k == "bw":
+        trk["bodyweight"] = [b for b in trk["bodyweight"] if b["date"] != dr["date"]]
+        trk["bodyweight"].append({"date": dr["date"], "kg": c["kg"]})
+        save_tracking(trk)
+        rel = []
+        for n in main_lifts():
+            rows = hist.get(n)
+            if rows and rows[-1]["e1rm"]:
+                rel.append(f"{short(n)} {rows[-1]['e1rm'] / c['kg']:.2f}x")
+        return f"BW {c['kg']:g} kg." + (" e1RM/BW: " + ", ".join(rel[:3]) + "." if rel else "")
+    if k == "run":
+        dt = (on - timedelta(days=1)) if c.get("yesterday") else on
+        trk["runs"].append({"date": dt.isoformat(), "km": c["km"], "min": c.get("min")})
+        save_tracking(trk)
+        return f"Run {c['km']:g} km. 7 days: {run_km(trk, on, 7):g} km."
+    if k == "physio":
+        trk["physio"] = [p for p in trk["physio"] if p["date"] != dr["date"]]
+        trk["physio"].append({"date": dr["date"], "done": c["done"], "pain": c["pain"], "drills": c["drills"]})
+        save_tracking(trk)
+        pains = [p["pain"] for p in trk["physio"] if p.get("pain") is not None][-4:]
+        if not c["done"]:
+            return "Physio skipped, noted."
+        return "Physio logged" + (f", pain {c['pain']}" if c["pain"] is not None else "") + (
+            f" (trend {', '.join(map(str, pains))})." if len(pains) > 1 else ".")
+    if k == "pain":
+        trk["pain"].append({"date": dr["date"], "site": c["site"], "score": c["score"]})
+        save_tracking(trk)
+        lim = settings()["pain_stop"]
+        if c["score"] > lim:
+            return f"Pain {c['score']}/10 {c['site']}: stop that lift and swap it. Rule is no pushing past {lim}."
+        return f"Pain {c['score']}/10 {c['site']} noted."
+    if k == "undo":
+        for e in reversed(dr["exercises"]):
+            if e["sets"]:
+                e["sets"].pop()
+                if not e["sets"]:
+                    dr["exercises"].remove(e)
+                return f"Removed last set of {short(e['name'])}."
+        return "Nothing to undo."
+    if k == "skip":
+        if c["ex"]:
+            dr.setdefault("skipped", []).append(c["ex"])
+        nxt = _next_planned(dr)
+        return f"Skipped {short(c['ex']) if c['ex'] else 'it'}." + (_next_str(nxt, hist) if nxt else "")
+    if k == "swap":
+        frm = c["ex"]
+        if not frm:
+            return "Swap which lift?"
+        t = _plan_for(dr, frm) or next_target(frm, hist.get(frm, []), prescription(frm), on)
+        to = c["to"] or (swap_options(frm, hist, exclude=[e["name"] for e in dr["exercises"]]) or [None])[0]
+        if not to:
+            return f"No swap on file for {short(frm)}."
+        w = carry(frm, to, t.get("weight"), hist)
+        tgt = dict(t, ex=to, weight=w)
+        dr.setdefault("swaps", []).append({"from": frm, "to": to, "target": tgt})
+        dr["current"] = to
+        last = hist.get(to)
+        return f"{short(frm)} -> {short(to)} {fmt_target(tgt)}" + (
+            f" (last: {fmt_sets(last[-1]['sets'])})." if last else ".")
+    if k == "sets":
+        name = c["ex"]
+        if not name:
+            return "Which lift?"
+        e = _ex_entry(dr, name)
+        e["sets"].extend(c["sets"])
+        dr["current"] = name
+        msg = f"{short(name)} {fmt_sets(e['sets'])}."
+        rows = hist.get(name, [])
+        be = best_e1rm(working(e["sets"]))
+        prev = max([r["e1rm"] or 0 for r in rows] or [0])
+        if be and prev and be > prev:
+            msg += f" e1RM {be:g} PR."
+        t = _plan_for(dr, name)
+        if t and t.get("sets") and len(working(e["sets"], info(name)["kind"])) < t["sets"]:
+            lastset = e["sets"][-1]
+            if t.get("reps") and lastset.get("reps") and lastset["reps"] < t["reps"] - 1 and lastset.get("weight"):
+                return msg + f" Short of {t['reps']}: next set {fmt_w(rnd(lastset['weight'] * 0.95, name))}."
+            return msg + f" Next set {fmt_w(lastset.get('weight'))} x {t.get('reps') or lastset.get('reps')}."
+        nxt = _next_planned(dr)
+        return msg + (_next_str(nxt, hist) if nxt else "")
+    return ""
+
+
+def _next_str(t, hist):
+    rows = hist.get(t["ex"], [])
+    last = f" (last {fmt_sets(rows[-1]['sets'])})" if rows else ""
+    return f" Next: {short(t['ex'])} {fmt_target(t)}{last}."
+
+
+# ---------- finalise ----------
+
+def session_from_draft(dr, source):
+    ex = [e for e in dr["exercises"] if e["sets"]]
+    return {"date": dr["date"], "start": None, "name": f"Day {dr['day']}" if dr.get("day") else "Session",
+            "day": dr.get("day"), "duration_min": dr.get("duration_min"), "deload": bool(dr.get("deload")),
+            "source": source, "source_kind": "pt", "notes": "; ".join(dr.get("notes", [])),
+            "swaps": [{"from": s["from"], "to": s["to"]} for s in dr.get("swaps", [])],
+            "exercises": ex}
+
+
+def write_session(s):
+    logs = data_dir() / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    p = logs / f"{s['date']}.json"
+    n = 2
+    while p.exists():
+        old = rjson(p)
+        if old.get("source_kind") == s.get("source_kind") and old.get("start") == s.get("start"):
+            break
+        p = logs / f"{s['date']}-{n}.json"
+        n += 1
+    s = {k: v for k, v in s.items() if not k.startswith("_")}
+    wjson(p, s)
+    return p
+
+
+def validate(s):
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", s["date"]), "date must be YYYY-MM-DD"
+    for e in s.get("exercises", []):
+        canon = resolve(e["name"]) or e["name"]
+        e["name"] = canon
+        for st in e["sets"]:
+            assert isinstance(st, dict), "sets are objects"
+    return s
+
+
+def finish(dr, source, png=True):
+    s = session_from_draft(dr, source)
+    p = write_session(s)
+    summary()
+    out = [str(p)]
+    if png:
+        outp = data_dir() / "dashboards" / f"{dr['date']}.png"
+        dashboard(d(dr["date"]), outp)
+        out.append(str(outp))
+    return out
+
+
+# ---------- imports (Strong, Hevy) ----------
+
+def _f(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _dur(s):
+    m = re.fullmatch(r"(?:(\d+)h)?\s*(?:(\d+)m)?", (s or "").strip())
+    if not m or not (m.group(1) or m.group(2)):
+        return None
+    mins = int(m.group(1) or 0) * 60 + int(m.group(2) or 0)
+    return mins if mins <= 240 else None  # timers left running
+
+
+def _csv_rows(path):
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        rows = list(csv.reader(fh))
+    if not rows:
+        return []
+    head, out = rows[0], []
+    for r in rows[1:]:
+        if not r:
+            continue
+        if len(r) == len(head) + 1:  # unquoted comma in a workout name ('Week 1",2,...')
+            r = [r[0], f"{r[1]}, {r[2]}"] + r[3:]
+        out.append(dict(zip(head, r)))
+    return out
+
+
+def read_strong(path, lb=False):
+    """Strong export -> normalised set rows. Strong writes weights in the app's unit."""
+    out = []
+    for r in _csv_rows(path):
+        out.append({"start": r["Date"], "name": r["Workout Name"], "duration_min": _dur(r.get("Duration")),
+                    "workout_notes": r.get("Workout Notes") or "", "ex": r["Exercise Name"],
+                    "warmup": r["Set Order"].strip().upper() == "W",
+                    "weight": _unit(_f(r["Weight"]), "lb" if lb else "kg"), "reps": _f(r["Reps"]),
+                    "seconds": _f(r.get("Seconds")), "km": _f(r.get("Distance")), "rpe": _f(r.get("RPE")),
+                    "notes": r.get("Notes") or ""})
+    return out
+
+
+def _hevy_time(t):
+    t = (t or "").strip()
+    for fmt in ("%d %b %Y, %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(t, fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(t.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        raise ValueError(f"can't read Hevy time '{t}'")
+
+
+def read_hevy(path):
+    """Hevy export (Settings > Export data) -> normalised set rows."""
+    out = []
+    for r in _csv_rows(path):
+        st, en = _hevy_time(r["start_time"]), _hevy_time(r.get("end_time") or r["start_time"])
+        mins = int((en - st).total_seconds() // 60)
+        w = _f(r["weight_kg"]) if "weight_kg" in r else _unit(_f(r.get("weight_lbs")), "lb")
+        out.append({"start": st.strftime("%Y-%m-%d %H:%M:%S"), "name": r.get("title") or "Workout",
+                    "duration_min": mins if 0 < mins <= 240 else None,
+                    "workout_notes": r.get("description") or "", "ex": r["exercise_title"],
+                    "warmup": (r.get("set_type") or "").strip().lower() == "warmup",
+                    "weight": w, "reps": _f(r.get("reps")), "seconds": _f(r.get("duration_seconds")),
+                    "km": _f(r.get("distance_km")) or round(_f(r.get("distance_miles")) * 1.609, 2),
+                    "rpe": _f(r.get("rpe")),
+                    "notes": r.get("exercise_notes") or ""})
+    return out
+
+
+def import_rows(rows, kind, source):
+    """Normalised set rows -> one logs/<date>.json per session. Re-importing overwrites only `kind` logs."""
+    sessions = {}
+    for r in rows:
+        st = r["start"]
+        s = sessions.setdefault(st, {"date": st[:10], "start": st, "name": r["name"], "day": None,
+                                     "duration_min": r["duration_min"], "deload": False,
+                                     "source": source, "source_kind": kind,
+                                     "notes": r["workout_notes"], "exercises": []})
+        if r["workout_notes"] and not s["notes"]:
+            s["notes"] = r["workout_notes"]
+        name = resolve(r["ex"]) or r["ex"].strip()
+        if not s["exercises"] or s["exercises"][-1]["name"] != name:
+            s["exercises"].append({"name": name, "sets": []})
+        e = s["exercises"][-1]
+        st_ = {"weight": r["weight"], "reps": int(r["reps"]) if r["reps"] else None}
+        if r["seconds"]:
+            st_["seconds"] = int(r["seconds"])
+        if r["km"]:
+            st_["km"] = r["km"]
+        if 0 < r["rpe"] <= 10:
+            st_["rpe"] = r["rpe"]
+        if r["warmup"]:
+            st_["warmup"] = True
+        if r["notes"]:
+            e["notes"] = (e.get("notes", "") + " " + r["notes"]).strip()
+        e["sets"].append(st_)
+    by_date = {}
+    for st in sorted(sessions):
+        by_date.setdefault(st[:10], []).append(sessions[st])
+    logs = data_dir() / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    n = 0
+    for day, ss in by_date.items():
+        for i, s in enumerate(ss):
+            p = logs / (f"{day}.json" if i == 0 else f"{day}-{i + 1}.json")
+            old = rjson(p)
+            if old and old.get("source_kind") != kind:
+                p = logs / f"{day}-{kind}{i + 1}.json"
+            wjson(p, s)
+            n += 1
+    return n
+
+
+def import_strong(path, source=None, lb=False):
+    return import_rows(read_strong(path, lb), "strong", source or Path(path).name)
+
+
+def import_hevy(path, source=None):
+    return import_rows(read_hevy(path), "hevy", source or Path(path).name)
+
+
+# ---------- onboarding and program generator ----------
+
+TEMPLATE = {
+    "about": {"name": "", "age_range": "30-39", "training_years": 2,
+              "injuries": ["e.g. lower back flares on heavy deadlifts"],
+              "avoid": ["e.g. Deadlift (Barbell)"], "pain_stop": 3,
+              "rehab_drills": ["e.g. Clamshell", "e.g. Cat Cow"]},
+    "history": {"source": "strong | hevy | paste | none", "file": "", "notes": ""},
+    "goals": {"primary": "strength | hypertrophy | fat_loss | general | event",
+              "event": "", "event_date": "", "detail": "e.g. bench bodyweight by June"},
+    "routine": {"days_per_week": 3, "session_min": 60, "equipment": "gym | dumbbells | home",
+                "split": "auto | full_body | upper_lower", "likes": ["e.g. Bench Press (Barbell)"],
+                "other": [{"type": "running", "km_per_week": 20}]},
+}
+
+# day templates: (pattern, main?) in priority order; sessions keep the first N that fit
+FULL_BODY = [
+    [("squat", True), ("horizontal_press", True), ("horizontal_pull", True), ("knee_flex", False),
+     ("core_anti_ext", False), ("lateral_raise", False), ("elbow_flex", False)],
+    [("hinge", True), ("vertical_press", True), ("vertical_pull", True), ("single_leg", False),
+     ("core_anti_rot", False), ("rear_delt", False), ("elbow_ext", False)],
+    [("single_leg", True), ("horizontal_press", True), ("horizontal_pull", True), ("hip_ext", False),
+     ("core_anti_lat", False), ("chest_fly", False), ("calf", False)],
+]
+UPPER_LOWER = [
+    [("horizontal_press", True), ("horizontal_pull", True), ("vertical_press", False), ("vertical_pull", False),
+     ("lateral_raise", False), ("elbow_flex", False), ("elbow_ext", False)],
+    [("squat", True), ("hinge", True), ("single_leg", False), ("knee_flex", False),
+     ("calf", False), ("core_anti_ext", False)],
+    [("vertical_pull", True), ("vertical_press", True), ("horizontal_press", False), ("horizontal_pull", False),
+     ("rear_delt", False), ("elbow_ext", False), ("elbow_flex", False)],
+    [("hinge", True), ("squat", True), ("single_leg", False), ("knee_ext", False),
+     ("calf", False), ("core_anti_rot", False)],
+]
+# first choice per pattern with a full gym; other kit falls through the catalogue
+GYM_PICK = {
+    "squat": ["Squat (Barbell)", "Leg Press", "Goblet Squat (Kettlebell)"],
+    "hinge": ["Romanian Deadlift (Barbell)", "Trap Bar Deadlift", "Romanian Deadlift (Dumbbell)"],
+    "horizontal_press": ["Bench Press (Barbell)", "Incline Bench Press (Dumbbell)", "Bench Press (Dumbbell)"],
+    "horizontal_pull": ["Chest Supported Row (Dumbbell)", "Seated Row (Cable)", "Bent Over One Arm Row (Dumbbell)"],
+    "vertical_press": ["Overhead Press (Dumbbell)", "Overhead Press (Barbell)", "Shoulder Press (Machine)"],
+    "vertical_pull": ["Lat Pulldown (Cable)", "Chin Up", "Pull Up (Assisted)"],
+    "single_leg": ["Bulgarian Split Squat", "Reverse Lunge (Barbell)", "Walking Lunge"],
+    "knee_flex": ["Lying Leg Curl (Machine)", "Seated Leg Curl (Machine)"],
+    "knee_ext": ["Leg Extension (Machine)"],
+    "hip_ext": ["Hip Thrust (Barbell)"],
+    "lateral_raise": ["Lateral Raise (Dumbbell)", "Lateral Raise (Cable)"],
+    "rear_delt": ["Face Pull (Cable)", "Reverse Fly (Dumbbell)"],
+    "chest_fly": ["Cable Crossover", "Chest Fly (Dumbbell)"],
+    "elbow_flex": ["Bicep Curl (Dumbbell)", "Hammer Curl (Dumbbell)"],
+    "elbow_ext": ["Triceps Pushdown (Cable - Straight Bar)", "Overhead Tricep Extension"],
+    "calf": ["Standing Calf Raise (Smith Machine)", "Standing Calf Raise (Dumbbell)"],
+    "core_anti_ext": ["Plank", "Dead Bugs"],
+    "core_anti_rot": ["Pallof Press"],
+    "core_anti_lat": ["Side Plank"],
+}
+REPS = {  # goal -> (main range, accessory range)
+    "strength": ([4, 6], [8, 12]), "hypertrophy": ([6, 10], [10, 15]),
+    "fat_loss": ([6, 10], [10, 15]), "general": ([6, 10], [8, 12]), "event": ([6, 10], [8, 12]),
+}
+EACH = {"single_leg", "core_anti_rot", "core_anti_lat"}
+LIFT_KINDS = ("weight", "bodyweight", "assisted", "time")
+
+
+def kit_ok(name, equipment):
+    i = info(name)
+    if i["kind"] not in LIFT_KINDS:
+        return False
+    if equipment == "home":
+        return i["kind"] in ("bodyweight", "time")
+    if equipment == "dumbbells":
+        return i["kind"] in ("bodyweight", "time") or i["dumbbell"]
+    return True
+
+
+def pick_lift(pattern, equipment, avoid, used, likes, hist):
+    """Best lift for a slot: liked > most logged in the last year > default order > catalogue order."""
+    cands = [n for n, v in CATALOGUE.items() if v["pattern"] == pattern and kit_ok(n, equipment)
+             and n not in avoid and n not in used]
+    if not cands:
+        return None, []
+    pref = GYM_PICK.get(pattern, [])
+    cutoff = (today() - timedelta(days=365)).isoformat()
+
+    def rank(n):
+        recent = sum(1 for r in hist.get(n, []) if r["date"] >= cutoff)
+        return (n not in likes, -recent, pref.index(n) if n in pref else len(pref), list(CATALOGUE).index(n))
+    cands.sort(key=rank)
+    return cands[0], cands[1:3]
+
+
+def generate_program(ans, hist=None):
+    hist = hist if hist is not None else history(load_sessions())
+    about, goals, rt = ans.get("about", {}), ans.get("goals", {}), ans.get("routine", {})
+    n = max(1, min(6, int(rt.get("days_per_week") or 3)))
+    split = rt.get("split") or "auto"
+    if split not in ("full_body", "upper_lower"):
+        split = "full_body" if n <= 3 else "upper_lower"
+    templates = FULL_BODY if split == "full_body" else UPPER_LOWER
+    mins = int(rt.get("session_min") or 60)
+    slots = 3 if mins <= 30 else 4 if mins <= 45 else 5 if mins <= 60 else 6 if mins <= 75 else 7
+    goal = goals.get("primary") if goals.get("primary") in REPS else "general"
+    main_r, acc_r = REPS[goal]
+    if float(about.get("training_years") or 0) < 1:
+        main_r = [max(main_r[0], 6), max(main_r[1], 10)]  # newer lifters: more reps, more practice
+    equipment = rt.get("equipment") if rt.get("equipment") in ("gym", "dumbbells", "home") else "gym"
+    avoid = {resolve(x) or x for x in about.get("avoid", []) if not x.startswith("e.g.")}
+    likes = {resolve(x) or x for x in rt.get("likes", []) if not x.startswith("e.g.")}
+    days, used = {}, set()
+    for k in range(n):
+        label = "ABCDEF"[k]
+        items = []
+        for pattern, main in templates[k % len(templates)]:
+            if len(items) >= slots:
+                break
+            ex, alts = pick_lift(pattern, equipment, avoid, used, likes, hist)
+            if not ex:
+                ex, alts = pick_lift(pattern, equipment, avoid, set(), likes, hist)
+            if not ex:
+                continue
+            used.add(ex)
+            kind = info(ex)["kind"]
+            it = {"ex": ex, "sets": 3 if main else (3 if goal == "hypertrophy" and mins >= 60 else 2)}
+            if kind == "time":
+                it["seconds"] = 30
+            else:
+                it["reps"] = list(main_r if main else acc_r)
+            if main:
+                it["main"] = True
+            if alts:
+                it["alt"] = alts
+            if pattern in EACH:
+                it["each"] = True
+            items.append(it)
+        days[label] = items
+    band = [4, 10] if n <= 2 else [6, 14] if n == 3 else [10, 20]
+    st = {"band": band, "pain_stop": int(about.get("pain_stop") or 3)}
+    for o in rt.get("other", []) or []:
+        if (o.get("type") or "").lower().startswith("run") and _f(o.get("km_per_week")) >= 40:
+            st["run_heavy_km_48h"] = 15
+    return {"generated": today().isoformat(), "goal": goal, "split": split, "settings": st, "days": days}
+
+
+def fmt_program(prog):
+    out = [f"{prog.get('split', '').replace('_', ' ')} · goal {prog.get('goal', '?')} · "
+           f"{len(prog['days'])} days/week · weekly sets band {settings(prog)['band'][0]}-{settings(prog)['band'][1]}"]
+    for day, items in prog["days"].items():
+        out.append(f"Day {day}")
+        for it in items:
+            rng = f"{it['seconds']}s" if it.get("seconds") else f"{it['reps'][0]}-{it['reps'][1]}"
+            out.append(f"- {it['ex']}: {it['sets']} x {rng}" + (" each side" if it.get("each") else "")
+                       + (" (main)" if it.get("main") else "")
+                       + (f"; alt {', '.join(it['alt'])}" if it.get("alt") else ""))
+    return "\n".join(out)
+
+
+def onboard(path):
+    ans = json.loads(Path(path).read_text())
+    prof = dict(ans, confirmed=False, created=today().isoformat())
+    wjson(data_dir() / "profile.json", prof)
+    prog = generate_program(ans)
+    wjson(data_dir() / "program.json", prog)
+    sessions = load_sessions()
+    head = f"{len(sessions)} sessions on file" + (f" ({sessions[0]['date']} to {sessions[-1]['date']})" if sessions else "")
+    return head + "\n" + fmt_program(prog) + "\nReview, edit program.json if needed, then `pt onboard --confirm`."
+
+
+def ready():
+    """None if `pt plan` can run, else what to do first."""
+    prof, prog = profile(), program()
+    if not prog.get("days"):
+        return "No program yet. Onboard first: `pt onboard --template`."
+    if prof and not prof.get("confirmed"):
+        return "Program not confirmed yet. Review it (`pt program`), then `pt onboard --confirm`."
+    return None
+
+
+# ---------- summary (progress.md) ----------
+
+def summary(on=None):
+    on = on or today()
+    prog, sessions, trk = program(), load_sessions(), tracking()
+    hist = history(sessions)
+    bw = latest_bw(trk)
+    mains = main_lifts(prog)
+    ld = last_deload(sessions, on)
+    reasons = deload_reasons(sessions, hist, trk, on, prog)
+    ws = week_start(on)
+    this, last = weekly_sets(sessions, ws), weekly_sets(sessions, ws - timedelta(days=7))
+    avg4 = {m: sum(weekly_sets(sessions, ws - timedelta(days=7 * k))[m] for k in range(1, 5)) / 4 for m in MUSCLES}
+    lastsess = sessions[-1] if sessions else None
+    nd = next_day(sessions, prog)
+    L = []
+    srcs = sorted({s["source"] for s in sessions if s.get("source")})
+    band = settings(prog)["band"]
+    L += [f"<!-- generated by `pt summary` on {on.isoformat()}; do not hand-edit -->", "",
+          "# PT progress", "",
+          "Coaching state, rewritten after every workout. Program: `program.json`. "
+          "Profile: `profile.json`. Accessory ideas: `ideas.md`. Session logs: `logs/`.", ""]
+    L += ["## Now", ""]
+    if lastsess:
+        L.append(f"- Last session: {lastsess['date']} {lastsess.get('name') or ''} (`logs/{lastsess['_file']}`)")
+    L.append(f"- Next: Day {nd}" if nd else "- Next: no program")
+    L.append(f"- Bodyweight: {bw['kg']:g} kg ({bw['date']})" if bw else "- Bodyweight: unknown (send `bw 80`)")
+    L.append(f"- Last deload or break: {ld.isoformat() if ld else 'none'}"
+             + (f" ({(on - ld).days // 7} weeks ago)" if ld else ""))
+    L.append("- Deload due: " + ("; ".join(reasons) if reasons else "no"))
+    L.append(f"- Running: {run_km(trk, on, 7):g} km last 7 days, {run_km(trk, on, 28):g} km last 28")
+    L.append("")
+    L += ["## Lifts", "",
+          "| Lift | Working | Last session | Best e1RM | Now e1RM | xBW | Trend | Stalls | Next |",
+          "|---|---|---|---|---|---|---|---|---|"]
+    shown = [n for n in mains if n in hist] + sorted(
+        [n for n, rows in hist.items() if n not in mains and (on - d(rows[-1]["date"])).days <= 56
+         and info(n)["kind"] not in ("physio", "warmup", "cardio")], key=lambda n: hist[n][-1]["date"], reverse=True)
+    for n in shown:
+        rows = hist[n]
+        r = rows[-1]
+        best = max(rows, key=lambda x: x["e1rm"] or 0)
+        t = next_target(n, rows, prescription(n, prog), on)
+        rel = f"{r['e1rm'] / bw['kg']:.2f}" if bw and r["e1rm"] else "-"
+        best_s = f"{fmt_w(best['e1rm'])} ({best['date']})" if best["e1rm"] else "-"
+        L.append(f"| {n}{' (main)' if n in mains else ''} | {fmt_w(r['top_w']) if r['top_w'] else '-'} | "
+                 f"{fmt_sets(r['sets'])} ({r['date']}) | {best_s} | "
+                 f"{fmt_w(r['e1rm']) if r['e1rm'] else '-'} | {rel} | {trend(rows)} | {stalls(rows, on)} | "
+                 f"{fmt_target(t)} |")
+    for n in mains:
+        if n not in hist:
+            L.append(f"| {n} (main) | - | not logged yet | - | - | - | new | 0 | "
+                     f"{fmt_target(next_target(n, [], prescription(n, prog), on))} |")
+    L += ["", f"## Weekly hard sets (band {band[0]} to {band[1]}, soft)", "",
+          f"| Muscle | This week (from {ws.isoformat()}) | Last week | 4-week avg | Flag |", "|---|---|---|---|---|"]
+    flags = load_flags(this, last)
+    for m in MUSCLES:
+        f = "; ".join(x for x in flags if x.startswith(m)) or ""
+        L.append(f"| {m} | {this[m]:g} | {last[m]:g} | {avg4[m]:.1f} | {f} |")
+    L += ["", "## Rehab / physio", ""]
+    pd = physio_days(trk, on)
+    done = sum(1 for _, p in pd if p and p.get("done"))
+    pains = [f"{p['date'][5:]}: {p['pain']}" for p in trk["physio"] if p.get("pain") is not None][-6:]
+    L.append(f"- Done {done} of last 14 days.")
+    L.append("- Pain trend: " + (", ".join(pains) if pains else "no scores yet"))
+    other = [f"{p['date']} {p['site']} {p['score']}/10" for p in trk["pain"]][-5:]
+    if other:
+        L.append("- Other pain: " + ", ".join(other))
+    L += ["", "## History peaks vs now", "",
+          "Peaks across all imported and logged sessions. e1RM = Epley, reps capped at 10.", "",
+          "| Lift | Sessions | Peak e1RM | Peak set | Now e1RM | % of peak |", "|---|---|---|---|---|---|"]
+    ranked = sorted([n for n in hist if info(n)["kind"] == "weight" and any(r["e1rm"] for r in hist[n])],
+                    key=lambda n: -len(hist[n]))[:15]
+    for n in ranked:
+        rows = hist[n]
+        pk = max(rows, key=lambda x: x["e1rm"] or 0)
+        top = max(pk["sets"], key=lambda s: e1rm(s.get("weight"), s.get("reps")) or 0)
+        now = rows[-1]["e1rm"]
+        pct = f"{round(100 * now / pk['e1rm'])}%" if now and pk["e1rm"] else "-"
+        L.append(f"| {n} | {len(rows)} | {pk['e1rm']:g} ({pk['date']}) | {fmt_w(top['weight'])}x{top['reps']} | "
+                 f"{fmt_w(now) if now else '-'} ({rows[-1]['date']}) | {pct} |")
+    L += ["", "## Recent sessions", ""]
+    for s in sessions[-6:][::-1]:
+        tot = sum(tonnage(e["sets"]) for e in s["exercises"])
+        L.append(f"- {s['date']} {s.get('name') or ''}: {len(s['exercises'])} exercises, {tot:,.0f} kg "
+                 f"(`logs/{s['_file']}`)")
+    L += ["", "## Sources", ""] + [f"- `{x}`" for x in srcs] + [
+        "- Bodyweight, runs, physio: `tracking.json`", ""]
+    (data_dir() / "progress.md").write_text("\n".join(L))
+    return data_dir() / "progress.md"
+
+
+# ---------- dashboard ----------
+
+C = {"bg": (14, 16, 21), "panel": (24, 27, 34), "text": (236, 238, 243), "muted": (140, 148, 166),
+     "line": (52, 57, 70), "green": (76, 195, 138), "blue": (98, 160, 246), "amber": (240, 180, 41),
+     "red": (239, 91, 91), "band": (40, 66, 56)}
+FONTS = [("/System/Library/Fonts/HelveticaNeue.ttc", {"regular": 0, "bold": 1, "medium": 10, "light": 7}),
+         ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", {}),
+         ("DejaVuSans.ttf", {})]
+
+
+def _font(size, weight="regular"):
+    from PIL import ImageFont
+    for path, idx in FONTS:
+        try:
+            return ImageFont.truetype(path, size, index=idx.get(weight, 0))
+        except OSError:
+            continue
+    return ImageFont.load_default(size)
+
+
+def session_stats(s, hist_before):
+    load = sum(tonnage(e["sets"]) for e in s["exercises"])
+    nsets = sum(len(working(e["sets"], info(e["name"])["kind"])) for e in s["exercises"]
+                if info(e["name"])["kind"] not in ("physio", "warmup", "cardio"))
+    prs = []
+    for e in s["exercises"]:
+        if info(e["name"])["kind"] != "weight":
+            continue
+        ws = working(e["sets"])
+        be = best_e1rm(ws)
+        prev = hist_before.get(e["name"], [])
+        pb = max([r["e1rm"] or 0 for r in prev] or [0])
+        if be and pb and be > pb:
+            prs.append(f"{short(e['name'])} e1RM {be:g} PR")
+            continue
+        for st in ws:
+            same = [max(r2.get("reps") or 0 for r2 in r["sets"] if r2.get("weight") == st.get("weight"))
+                    for r in prev if any(r2.get("weight") == st.get("weight") for r2 in r["sets"])]
+            if same and (st.get("reps") or 0) > max(same):
+                prs.append(f"{short(e['name'])} {fmt_w(st['weight'])}x{st['reps']} rep PR")
+                break
+    return load, nsets, prs
+
+
+def dashboard(on, out, sessions=None):
+    from PIL import Image, ImageDraw
+    sessions = sessions if sessions is not None else load_sessions()
+    trk = tracking()
+    todays = [s for s in sessions if s["date"] == on.isoformat()]
+    if not todays:
+        raise SystemExit(f"no session on {on}")
+    s = todays[-1]
+    before = [x for x in sessions if x["date"] < on.isoformat()]
+    hb, hall = history(before), history([x for x in sessions if x["date"] <= on.isoformat()])
+    load, nsets, prs = session_stats(s, hb)
+    lifts = [e["name"] for e in s["exercises"] if info(e["name"])["kind"] == "weight"][:5]
+    ws = week_start(on)
+    week, lastw = weekly_sets(sessions, ws), weekly_sets(sessions, ws - timedelta(days=7))
+    BAND = settings()["band"]
+    W, P = 1080, 48
+    rows_h = 150
+    H = 330 + 90 + rows_h * len(lifts) + 90 + 74 * len(MUSCLES) + 60 + 300 + 80
+    img = Image.new("RGB", (W, H), C["bg"])
+    g = ImageDraw.Draw(img)
+    y = P
+    bw = latest_bw(trk)
+    g.text((P, y), s.get("name") or "Session", font=_font(64, "bold"), fill=C["text"])
+    g.text((W - P, y + 18), _day(on, "%b %Y", "%a "), font=_font(36), fill=C["muted"], anchor="ra")
+    y += 100
+    tiles = [("Load", f"{load:,.0f} kg"), ("Hard sets", f"{nsets}"), ("PRs", f"{len(prs)}")]
+    tw = (W - 2 * P - 2 * 24) // 3
+    for i, (k, v) in enumerate(tiles):
+        x = P + i * (tw + 24)
+        g.rounded_rectangle((x, y, x + tw, y + 150), 22, fill=C["panel"])
+        g.text((x + 28, y + 22), k, font=_font(32), fill=C["muted"])
+        g.text((x + 28, y + 68), v, font=_font(56, "bold"), fill=C["green"] if k == "PRs" and prs else C["text"])
+    y += 178
+    sub = ", ".join(prs[:3]) if prs else "No PRs. Rebuild block: % of peak below."
+    g.text((P, y), sub, font=_font(32), fill=C["muted"])
+    y += 70
+    # e1RM sparklines
+    g.text((P, y), "e1RM by lift", font=_font(40, "bold"), fill=C["text"])
+    g.text((W - P, y + 8), "last 10 sessions · dashed = peak", font=_font(28), fill=C["muted"], anchor="ra")
+    y += 70
+    for n in lifts:
+        rows = [r for r in hall.get(n, []) if r["e1rm"]]
+        g.rounded_rectangle((P, y, W - P, y + rows_h - 20), 22, fill=C["panel"])
+        g.text((P + 28, y + 22), short(n).upper() if len(short(n)) <= 3 else short(n).capitalize(),
+               font=_font(36, "medium"), fill=C["text"])
+        if rows:
+            now, pk = rows[-1]["e1rm"], max(r["e1rm"] for r in rows)
+            g.text((P + 28, y + 74), f"{now:g} kg · {round(100 * now / pk)}% of peak", font=_font(30), fill=C["muted"])
+            right = f"{now / bw['kg']:.2f}x BW" if bw else f"peak {pk:g}"
+            g.text((W - P - 28, y + 26), right, font=_font(32, "medium"), fill=C["blue"], anchor="ra")
+            pts = [r["e1rm"] for r in rows[-10:]]
+            x0, x1, y0, y1 = 560, W - P - 200, y + 22, y + rows_h - 44
+            lo_, hi_ = min(pts + [pk]) * 0.95, max(pts + [pk]) * 1.02
+            sx = lambda i: x0 + (x1 - x0) * (i / max(1, len(pts) - 1))
+            sy = lambda v: y1 - (y1 - y0) * ((v - lo_) / ((hi_ - lo_) or 1))
+            for xx in range(x0, x1, 18):
+                g.line((xx, sy(pk), xx + 9, sy(pk)), fill=C["muted"], width=2)
+            g.line([(sx(i), sy(v)) for i, v in enumerate(pts)], fill=C["green"], width=5, joint="curve")
+            cx, cy = sx(len(pts) - 1), sy(pts[-1])
+            g.ellipse((cx - 9, cy - 9, cx + 9, cy + 9), fill=C["green"])
+        else:
+            g.text((P + 28, y + 74), "first log", font=_font(30), fill=C["muted"])
+        y += rows_h
+    y += 20
+    # weekly sets
+    g.text((P, y), "Hard sets this week", font=_font(40, "bold"), fill=C["text"])
+    g.text((W - P, y + 8), f"band {BAND[0]}-{BAND[1]} · tick = last week", font=_font(28), fill=C["muted"], anchor="ra")
+    y += 70
+    bx0, bx1, maxv = P + 230, W - P - 90, 24
+    X = lambda v: bx0 + (bx1 - bx0) * min(v, maxv) / maxv
+    for m in MUSCLES:
+        g.text((P, y + 6), m.capitalize(), font=_font(32), fill=C["text"])
+        g.rounded_rectangle((bx0, y + 8, bx1, y + 46), 10, fill=C["panel"])
+        g.rectangle((X(BAND[0]), y + 8, X(BAND[1]), y + 46), fill=C["band"])
+        v = week[m]
+        col = C["green"] if BAND[0] <= v <= BAND[1] else (C["amber"] if v > BAND[1] else C["blue"])
+        if v > 0:
+            g.rounded_rectangle((bx0, y + 14, max(bx0 + 12, X(v)), y + 40), 8, fill=col)
+        if lastw[m]:
+            g.line((X(lastw[m]), y + 2, X(lastw[m]), y + 52), fill=C["text"], width=3)
+        g.text((W - P, y + 6), f"{v:g}", font=_font(32, "medium"), fill=C["text"], anchor="ra")
+        y += 74
+    y += 30
+    # physio strip
+    pd = physio_days(trk, on)
+    done = sum(1 for _, p in pd if p and p.get("done"))
+    g.text((P, y), "Rehab · 14 days", font=_font(40, "bold"), fill=C["text"])
+    g.text((W - P, y + 8), f"done {done}/14", font=_font(32, "medium"), fill=C["text"], anchor="ra")
+    y += 80
+    step_ = (W - 2 * P) / 14
+    for i, (dd, p) in enumerate(pd):
+        cx = P + step_ * i + step_ / 2
+        r = 22
+        if p and p.get("done"):
+            pain = p.get("pain")
+            col = C["green"] if pain is None or pain <= 2 else (C["amber"] if pain == 3 else C["red"])
+            g.ellipse((cx - r, y - r + 20, cx + r, y + r + 20), fill=col)
+            if pain is not None:
+                g.text((cx, y + 20), str(pain), font=_font(26, "bold"), fill=C["bg"], anchor="mm")
+        elif p:
+            g.ellipse((cx - r, y - r + 20, cx + r, y + r + 20), outline=C["red"], width=4)
+        else:
+            g.ellipse((cx - r, y - r + 20, cx + r, y + r + 20), outline=C["line"], width=4)
+        if i % 2 == 1 or i == 13:
+            g.text((cx, y + 70), str(dd.day), font=_font(26), fill=C["muted"], anchor="mm")
+    y += 110
+    pains = [str(p["pain"]) for p in trk["physio"] if p.get("pain") is not None][-5:]
+    g.text((P, y), "Pain trend: " + (" > ".join(pains) if pains else "no scores yet ('physio done pain 2')"),
+           font=_font(30), fill=C["muted"])
+    y += 60
+    run7 = run_km(trk, on, 7)
+    foot = []
+    if bw:
+        foot.append(f"BW {bw['kg']:g} kg")
+    if run7:
+        foot.append(f"runs {run7:g} km / 7 d")
+    nd = next_day(sessions, program())
+    if nd:
+        foot.append(f"next: Day {nd}")
+    g.text((P, y), " · ".join(foot), font=_font(32, "medium"), fill=C["text"])
+    y += 70
+    img = img.crop((0, 0, W, min(H, y + P)))
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    img.save(out, optimize=True)
+    return out
+
+
+# ---------- cli ----------
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="pt", description=__doc__.split("\n")[0])
+    ap.add_argument("--data", help="data dir (default $PT_DATA or ~/.pt)")
+    sp = ap.add_subparsers(dest="cmd", required=True)
+    a = sp.add_parser("onboard"); a.add_argument("answers", nargs="?")
+    a.add_argument("--template", action="store_true"); a.add_argument("--confirm", action="store_true")
+    sp.add_parser("program")
+    a = sp.add_parser("import-strong"); a.add_argument("csv"); a.add_argument("--lb", action="store_true")
+    a = sp.add_parser("import-hevy"); a.add_argument("csv")
+    a = sp.add_parser("plan"); a.add_argument("--day"); a.add_argument("--date"); a.add_argument("--dry", action="store_true")
+    a = sp.add_parser("add"); a.add_argument("text", nargs="+")
+    a = sp.add_parser("done"); a.add_argument("--source", default="chat"); a.add_argument("--no-png", action="store_true")
+    a = sp.add_parser("log"); a.add_argument("file"); a.add_argument("--date"); a.add_argument("--day"); a.add_argument("--source")
+    sp.add_parser("summary")
+    a = sp.add_parser("dashboard"); a.add_argument("date"); a.add_argument("-o", "--out", required=True)
+    sp.add_parser("draft")
+    x = ap.parse_args(argv)
+    if x.data:
+        os.environ["PT_DATA"] = x.data
+    if x.cmd == "onboard":
+        if x.template:
+            print(json.dumps(TEMPLATE, indent=1))
+        elif x.confirm:
+            prof = profile()
+            if not prof:
+                raise SystemExit("no profile.json yet: run `pt onboard <answers.json>` first")
+            prof.update(confirmed=True, confirmed_on=today().isoformat())
+            wjson(data_dir() / "profile.json", prof)
+            print(f"confirmed; {summary()}")
+        elif x.answers:
+            print(onboard(x.answers))
+        else:
+            raise SystemExit("usage: pt onboard --template | <answers.json> | --confirm")
+    elif x.cmd == "program":
+        prog = program()
+        print(fmt_program(prog) if prog.get("days") else "no program yet")
+    elif x.cmd in ("import-strong", "import-hevy"):
+        n = import_strong(x.csv, lb=x.lb) if x.cmd == "import-strong" else import_hevy(x.csv)
+        print(f"imported {n} sessions"); summary()
+    elif x.cmd == "plan":
+        msg = ready()
+        if msg:
+            raise SystemExit(msg)
+        print(plan(x.day.upper() if x.day else None, d(x.date) if x.date else None, write=not x.dry))
+    elif x.cmd == "add":
+        print(add(" ".join(x.text)))
+    elif x.cmd == "draft":
+        print(json.dumps(load_draft(), indent=1))
+    elif x.cmd == "done":
+        dr = load_draft()
+        if not any(e["sets"] for e in dr["exercises"]):
+            raise SystemExit("draft is empty")
+        out = finish(dr, x.source, png=not x.no_png)
+        (data_dir() / ".draft.json").unlink(missing_ok=True)
+        print("\n".join(out))
+    elif x.cmd == "log":
+        p = Path(x.file)
+        if p.suffix == ".json":
+            s = validate(json.loads(p.read_text()))
+            s.setdefault("source_kind", "pt")
+            print(write_session(s)); summary()
+        else:
+            on = d(x.date) if x.date else today()
+            dr = {"date": on.isoformat(), "day": x.day, "deload": False, "plan": [], "exercises": [],
+                  "notes": [], "current": None}
+            for line in p.read_text().splitlines():
+                if line.strip() and not line.startswith("#"):
+                    add(line, dr)
+            print("\n".join(finish(dr, x.source or p.name, png=False)))
+    elif x.cmd == "summary":
+        print(summary())
+    elif x.cmd == "dashboard":
+        print(dashboard(d(x.date), x.out))
+
+
+if __name__ == "__main__":
+    main()

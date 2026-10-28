@@ -16,6 +16,7 @@ reads) and `README.md` (for humans).
 | [`feedback-addressing`](./feedback-addressing) | Work through reviewer feedback on a Word `.docx` (or PowerPoint `.pptx`) end-to-end — extract comments + dot-points, tier P1/P2/P3, research cited-evidence gaps, apply native Word track-changes, and produce an internal audit table plus a reviewer-facing email reply. Drafts only; never auto-sends. Ships Python helpers + smoke tests. |
 | [`helm`](./helm) + `helm-scope`, `helm-plan`, `helm-build`, `helm-review`, `helm-ship`, `helm-models` | [Helm v5](https://github.com/Nicegarrry/helm3): an orchestrator agent scopes, plans, reviews and ships while cheap Pi (OpenCode Go / OpenRouter) or Codex workers write code in their own git worktrees via the `helm` CLI. Copies of `helm3/skills`; refresh with `./sync-helm.sh`. Needs the `helm` CLI from helm3. |
 | [`qubit-ink`](./qubit-ink) | Qubit Studio design system (woodblock + sumi ink on cool paper): tokens, component recipes, scroll-drawn ink and motion patterns, woodblock marks and fonts, distilled from qubitstudio.app and the VG landing. Pairs with the VG style "Qubit Ink". |
+| [`pt`](./pt) | Text-message personal trainer: onboards you (profile, Strong/Hevy import, goals, typical week), generates a program, coaches set by set with deterministic double progression, deloads and weekly-set checks, logs sessions and renders a progress page and dashboard PNG. |
 
 ## Installing a skill
 
