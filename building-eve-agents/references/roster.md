@@ -1,0 +1,18 @@
+# Planned agents (Nick, 2026-11-01)
+
+Order recommended: librarian, then PAs (these two unlock switching off the Mac daemon), then pipeline, issues, slide maker, factory. Each still needs its agent card settled with Nick.
+
+| Agent | Kind | Seed / what exists | Replaces on the Mac | Open questions |
+|---|---|---|---|---|
+| **librarian** | durable | old persona `os/personas/librarian`; Mac skills `~/qubit-wiki/os/skills/{dream,retro,memory-review}`; catalog rules `~/qubit-wiki/os/connectors/<source>/catalog.md`; routines in `schedule/routines/catalog-daily.md` and `schedule/_retired/` (scorecard, skills-retro); daemon code `QubitOS/src/connectors/qwork/mirror.ts` (qWork mirror), `src/qwiki/mirror.ts` (catalog to qwiki), `src/connectors/{granola,wispr-flow}/watch.ts`; QOS has catalog read/write tools | catalog-daily (Slack, GitHub, HubSpot, Stripe), Granola and Wispr ingest (Wispr is Mac-local SQLite: needs a Mac-side shipper or stays a Mac job), qWork mirror, local catalog -> qwiki mirror, dream consolidation, skills retro, Friday memory-review deck, monthly scorecard, owns #knowledge and `memory/company.md` | Wispr on Vercel? Do the qWork mirror and catalog mirror move to eve or become qwiki-native? Consolidation pattern: read every agent's `memory/_dreams/**` (push filter `memory/_dreams/*`) and propose shared rules (QOS dream only rewrites its own channels). Which channel: #knowledge (renamed from #librarian; look up its id) mention-only or auto-reply. Frequent-ask promotion (3+ in 14 days, weekly review) |
+| **nick-pa**, **lucas-pa** | durable, one deployment each or one app with per-owner principals | old personas; mail watcher (Gmail history every 90 s, Jev triage, labels, archives fyi/noise, batches to DM, never sends or deletes); `inbox-triage` skill | mail triage for nick@, lucas@, hello@; DMs; private memory `os/memory/<pa>/private`; personal briefs (calendar, inbox); calendar edit; Al voice handoffs | Gmail/Calendar on Vercel: user-scoped Connect works only in user turns, so the 90 s watcher needs Gmail push (Pub/Sub watch) or an app-scoped credential per owner. One Slack app for both or one each (privacy argues one each). hello@ owner |
+| **pipeline** | durable | QOS HubSpot tools (`hubspot_*`), #growth | none (QOS does CRM today) | Mention-only in #growth while QOS remains there, or takes #growth from QOS. HubSpot webhooks for deal changes |
+| **issues tracking** | durable dispatcher + ephemeral builders | `~/code/eve-issue-agent` (Nicegarrry/qubit-agents, eve 0.83.2, self-hosted under launchd `com.qubit.eve-issue-agent`): polls `agent`-labelled issues, classifier, analyst, helm Codex build, gates, Claude review, draft PR, Slack ship ask bound to head SHA, merge `--match-head-commit` | old `qwork-issues` routine (retired 1 Nov) | Move to Vercel (helm needs a machine: keep Mac-hosted, or Vercel Sandbox), fix its `gh` x509 errors, upgrade eve |
+| **slide maker** | ephemeral (spawned by QOS or others) | QOS `slide_render` (#24), qWork slide tools, qskills `slide`, `slide-check` | none | Subagent of QOS vs own deployment |
+| **software factory** | ephemeral suite in #product | issues agent, helm loop, eve-issue-agent lessons (copy node_modules, 15 min gate timeout, `HELM_WORK` on internal disk) | none | Grows from the issues agent |
+
+Shared constraints for all of them:
+- Only one agent auto-replies per channel; specialists are mention-only.
+- Channel memory: one owner per channel until per-agent paths exist in qwiki.
+- PAs alone hold personal data; QOS and company agents never see private mail.
+- Each agent needs its own Slack app, qWork key, qwiki consumer, backend token, qskills entry.
