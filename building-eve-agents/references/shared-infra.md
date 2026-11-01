@@ -13,12 +13,17 @@ Storage-only HTTP API; every row keyed by the agent behind the bearer token, so 
 2. `AGENT_BACKEND_URL` (same as qos) and `AGENT_BACKEND_TOKEN` (sensitive) in Vercel.
 3. Add `<name>` to `AGENTS=(...)` in `~/.local/bin/agent-backend-archive`; token in keychain service `agent-backend-token`, account `<name>`.
 
-## qwiki (consumer token + memory scopes)
-Admin script `~/code/web/qwiki/scripts/consumer.ts` (`create`, `grant`, `list`, `revoke`). It needs the **prod** qwiki Convex env; the local `.env.local` points at dev. Hand the request to the "qWiki mcp" session (it owns prod consumer admin); widening a grant needs Nick's yes there.
-1. Create: read `**`; write `memory/_inbox/**`, own channels' `memory/channels/**` (or per-agent paths), `memory/_dreams/<name>/**`, plus page globs (each new top-level folder needs its own grant); catalog write if it writes the catalog. `memory/company.md` is librarian + Nick only.
-2. Vercel: `QWIKI_URL=https://qwiki.qubitstudio.app`, `QWIKI_TOKEN` (sensitive).
-3. Subscribe once (prod domain, HTTPS): `POST /api/v1/subscribe {"url":"https://<domain>/hooks/qwiki/memory","filters":["memory/company.md","memory/channels/*"]}`; store the returned secret as `QWIKI_WEBHOOK_SECRET`.
-4. Check: the qWiki session confirms forbidden paths are refused live.
+## qwiki (key + memory scopes)
+Keys are a module (`~/code/web/qwiki/docs/keys.md`). The CLI is `scripts/keys.ts` (`profiles`, `list`, `show`, `create`, `grant`, `rotate`, `revoke`, `audit`, `refusals`), run against the **prod** Convex env (`NEXT_PUBLIC_CONVEX_URL=https://decisive-jaguar-336.convex.cloud`, `QWIKI_SERVER_SECRET` from `npx convex env get QWIKI_SERVER_SECRET --prod`); the local `.env.local` is dev. Nick and Lucas can also revoke or rotate at `https://qwiki.qubitstudio.app/wiki/admin/keys`.
+1. Create from a profile, which needs a human admin's yes: `npx tsx scripts/keys.ts create <name> --profile company-agent|pa-agent|ephemeral-agent|service --write memory/channels/<id>.md <page globs>... [--catalog-write] [--file-add] --approved-by <nick or lucas email> --token-file <scratch>/t`.
+   - `company-agent` gives read `**` minus PA/people memory, plus write `memory/_inbox/**` and `memory/_dreams/<name>/**`.
+   - `pa-agent` names end in `-pa` and own `os/memory/<name>/**`.
+   - Channel memory is per channel: `memory/channels/<slackChannelId>.md`.
+   - `memory/company.md` and the shared rule files are protected: only keys with `--protected <path>` (the librarian, human admins) can write them.
+   - Widening a key later is `grant … --approved-by`.
+2. Vercel: `QWIKI_URL=https://qwiki.qubitstudio.app`. Set `QWIKI_TOKEN` (sensitive) straight from the token file: `vercel env add QWIKI_TOKEN production --sensitive < <scratch>/t`, then delete the file. Never echo the token.
+3. Subscribe once with the agent's key (prod domain, HTTPS): `POST /api/v1/subscribe {"url":"https://<domain>/hooks/qwiki/memory","filters":["memory/company.md","memory/channels/*"]}`. Store the returned secret as `QWIKI_WEBHOOK_SECRET` in the same piped way.
+4. Check live with the key: `whoami` shows the effective grants, and a forbidden path returns 403. Refusals show in `scripts/keys.ts refusals`.
 
 ## qskills (`~/code/QOS/qskills`, Nicegarrry/qskills)
 1. PR in qskills (pnpm workspace: `pnpm install`): `agents.yaml` entry `<name>: [skills]` (+ new skill folders); `pnpm test && pnpm typecheck && pnpm build`; bump version; merge; `pnpm pack` script (`release/qubit-qskills-<v>.tgz`).
