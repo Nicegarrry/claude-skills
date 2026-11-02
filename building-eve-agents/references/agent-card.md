@@ -25,7 +25,7 @@ memory:
   dream: <nightly receipt memory/_dreams/<name>/>
   company_memory: read (write only for librarian, propose-only for others)
 skills: [<qskills names>]      # each skill's tool dependencies must exist in this agent
-model: <default deepseek flash for volume; frontier for judgement>
+model: <default deepseek flash for volume; frontier for judgement. Direct Claude (Max plan API credit) must be wrapped in withFallback from qos agent/lib/model-fallback.ts so it drops to DeepSeek on outage or spend cap>
 never: [<things this agent must never do>]
 cutover: <what moves on day one, what stays, what is retired>
 done_when: [<observable checks>]
